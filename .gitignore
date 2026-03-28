@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Locks (root only manages husky; lock is fine to keep, but node_modules must be ignored)
+# Uncomment below if you prefer not to track the root lock file:
+# package-lock.json
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+
+# SQLite database file
+*.db
+
+# Next.js
+apps/web/.next/
+apps/web/out/
+
+# IDE
+.vscode/
+.idea/

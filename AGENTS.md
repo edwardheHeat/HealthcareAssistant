@@ -109,13 +109,6 @@ docs: update AGENTS.md
 ```
 Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
 
-### Pre-commit Hook
-A `pre-commit` hook runs automatically on every `git commit`:
-- **Frontend**: `prettier --write` + `eslint --fix`
-- **Backend**: `ruff format` + `ruff check --fix`
-
-Do **not** bypass hooks with `--no-verify` unless explicitly instructed.
-
 ---
 
 ## 5. Testing
