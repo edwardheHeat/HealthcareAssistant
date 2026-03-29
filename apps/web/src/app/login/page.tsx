@@ -23,7 +23,7 @@ export default function LoginPage() {
     try {
       const res = await login({ account_id: accountId, password });
       saveSession({
-        user_id: res.user_id,
+        user_id: res.id,
         name: res.name,
         onboarding_complete: res.onboarding_complete,
       });

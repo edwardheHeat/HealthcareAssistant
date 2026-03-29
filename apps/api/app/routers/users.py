@@ -1,47 +1,51 @@
 """User profile router."""
 
-import hashlib
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.dependencies import get_current_user
 from app.models.user import UserProfile
-from app.schemas.user import UserProfileCreate, UserProfileRead
+from app.schemas.user import UserLoginRequest, UserProfileCreate, UserSessionRead
+from app.services.accounts import (
+    authenticate_user,
+    build_user_session,
+    create_user_account,
+)
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-_DEFAULT_USER_ID = 1
 
-
-@router.post("", response_model=UserProfileRead, status_code=201)
+@router.post("", response_model=UserSessionRead, status_code=201)
 def create_user(
     payload: UserProfileCreate,
     db: Session = Depends(get_db),
-) -> UserProfile:
+) -> UserSessionRead:
     existing = db.scalars(
         select(UserProfile).where(UserProfile.account_id == payload.account_id)
     ).first()
     if existing:
         raise HTTPException(status_code=409, detail="Account ID already exists.")
 
-    user = UserProfile(
-        name=payload.name,
-        account_id=payload.account_id,
-        password_hash=hashlib.sha256(payload.password.encode()).hexdigest(),
-        age=payload.age,
-        sex=payload.sex,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+    user = create_user_account(db, payload)
+    return build_user_session(db, user)
 
 
-@router.get("/me", response_model=UserProfileRead)
-def get_me(db: Session = Depends(get_db)) -> UserProfile:
-    user = db.get(UserProfile, _DEFAULT_USER_ID)
+@router.post("/login", response_model=UserSessionRead)
+def login_user(
+    payload: UserLoginRequest,
+    db: Session = Depends(get_db),
+) -> UserSessionRead:
+    user = authenticate_user(db, payload)
     if user is None:
-        raise HTTPException(status_code=404, detail="User not found.")
-    return user
+        raise HTTPException(status_code=401, detail="Invalid account ID or password.")
+    return build_user_session(db, user)
+
+
+@router.get("/me", response_model=UserSessionRead)
+def get_me(
+    current_user: UserProfile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserSessionRead:
+    return build_user_session(db, current_user)

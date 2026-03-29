@@ -17,3 +17,12 @@ class UserProfileRead(BaseModel):
     sex: str
 
     model_config = {"from_attributes": True}
+
+
+class UserLoginRequest(BaseModel):
+    account_id: str = Field(..., max_length=80)
+    password: str = Field(..., min_length=8)
+
+
+class UserSessionRead(UserProfileRead):
+    onboarding_complete: bool

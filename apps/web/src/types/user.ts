@@ -6,10 +6,19 @@ export interface UserProfile {
   sex: "M" | "F";
 }
 
+export interface UserSession extends UserProfile {
+  onboarding_complete: boolean;
+}
+
 export interface UserProfileCreate {
   name: string;
   account_id: string;
   password: string;
   age: number;
   sex: "M" | "F";
+}
+
+export interface UserLoginRequest {
+  account_id: string;
+  password: string;
 }

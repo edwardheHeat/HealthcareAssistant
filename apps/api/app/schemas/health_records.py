@@ -1,4 +1,8 @@
-from datetime import UTC, date, datetime
+from __future__ import annotations
+
+from datetime import UTC
+from datetime import date as dt_date
+from datetime import datetime as dt_datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
@@ -6,8 +10,8 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 from app.models.health_records import FlowAmount
 
 
-def _today() -> date:
-    return datetime.now(UTC).date()
+def _today() -> dt_date:
+    return dt_datetime.now(UTC).date()
 
 
 def _ft_to_cm(height_ft: float) -> float:
@@ -41,14 +45,14 @@ def _normalize_intensity(value: str | None) -> Literal["low", "medium", "high"] 
 
 class BasicIndicatorCreate(BaseModel):
     user_id: int = Field(default=1, ge=1)
-    date: date = Field(default_factory=_today)
+    date: dt_date = Field(default_factory=_today)
     height_cm: float | None = Field(default=None, gt=0)
     weight_kg: float | None = Field(default=None, gt=0)
     height_ft: float | None = Field(default=None, gt=0)
     weight_lbs: float | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
-    def normalize_units(self) -> "BasicIndicatorCreate":
+    def normalize_units(self) -> BasicIndicatorCreate:
         if self.height_cm is None:
             if self.height_ft is None:
                 raise ValueError("height_cm or height_ft is required")
@@ -63,7 +67,7 @@ class BasicIndicatorCreate(BaseModel):
 class BasicIndicatorRead(BaseModel):
     id: int
     user_id: int
-    date: date
+    date: dt_date
     height_cm: float
     weight_kg: float
 
@@ -84,7 +88,7 @@ class BasicIndicatorRead(BaseModel):
 
 class DietRecordCreate(BaseModel):
     user_id: int = Field(default=1, ge=1)
-    date: date = Field(default_factory=_today)
+    date: dt_date = Field(default_factory=_today)
     breakfast_calories: int | None = Field(default=None, ge=0)
     lunch_calories: int | None = Field(default=None, ge=0)
     dinner_calories: int | None = Field(default=None, ge=0)
@@ -94,7 +98,7 @@ class DietRecordCreate(BaseModel):
     fat_g: float = Field(default=0, ge=0)
 
     @model_validator(mode="after")
-    def normalize_meals(self) -> "DietRecordCreate":
+    def normalize_meals(self) -> DietRecordCreate:
         meals = [
             self.breakfast_calories,
             self.lunch_calories,
@@ -119,7 +123,7 @@ class DietRecordCreate(BaseModel):
 class DietRecordRead(BaseModel):
     id: int
     user_id: int
-    date: date
+    date: dt_date
     breakfast_calories: int
     lunch_calories: int
     dinner_calories: int
@@ -141,14 +145,14 @@ class DietRecordRead(BaseModel):
 
 class SleepRecordCreate(BaseModel):
     user_id: int = Field(default=1, ge=1)
-    date: date | None = None
-    sleep_start: datetime
-    sleep_end: datetime | None = None
-    wake_time: datetime | None = None
+    date: dt_date | None = None
+    sleep_start: dt_datetime
+    sleep_end: dt_datetime | None = None
+    wake_time: dt_datetime | None = None
     quality: int = Field(default=3, ge=1, le=5)
 
     @model_validator(mode="after")
-    def normalize_sleep_fields(self) -> "SleepRecordCreate":
+    def normalize_sleep_fields(self) -> SleepRecordCreate:
         if self.sleep_end is None:
             if self.wake_time is None:
                 raise ValueError("sleep_end or wake_time is required")
@@ -163,21 +167,21 @@ class SleepRecordCreate(BaseModel):
 class SleepRecordRead(BaseModel):
     id: int
     user_id: int
-    date: date
-    sleep_start: datetime
-    sleep_end: datetime
+    date: dt_date
+    sleep_start: dt_datetime
+    sleep_end: dt_datetime
     quality: int
 
     model_config = {"from_attributes": True}
 
-    @computed_field(return_type=datetime)
-    def wake_time(self) -> datetime:
+    @computed_field(return_type=dt_datetime)
+    def wake_time(self) -> dt_datetime:
         return self.sleep_end
 
 
 class ExerciseRecordCreate(BaseModel):
     user_id: int = Field(default=1, ge=1)
-    date: date = Field(default_factory=_today)
+    date: dt_date = Field(default_factory=_today)
     duration_minutes: int | None = Field(default=None, ge=0, le=1440)
     duration_min: int | None = Field(default=None, ge=0, le=1440)
     intensity: Literal["low", "medium", "high"] | None = None
@@ -186,7 +190,7 @@ class ExerciseRecordCreate(BaseModel):
     work_activity_level: str | None = None
 
     @model_validator(mode="after")
-    def normalize_exercise_fields(self) -> "ExerciseRecordCreate":
+    def normalize_exercise_fields(self) -> ExerciseRecordCreate:
         if self.duration_minutes is None:
             if self.duration_min is None:
                 raise ValueError("duration_minutes or duration_min is required")
@@ -201,7 +205,7 @@ class ExerciseRecordCreate(BaseModel):
 class ExerciseRecordRead(BaseModel):
     id: int
     user_id: int
-    date: date
+    date: dt_date
     duration_minutes: int
     intensity: Literal["low", "medium", "high"]
 
@@ -235,6 +239,6 @@ class PeriodRecordCreate(BaseModel):
 class PeriodRecordRead(PeriodRecordCreate):
     id: int
     user_id: int
-    recorded_at: datetime
+    recorded_at: dt_datetime
 
     model_config = {"from_attributes": True}

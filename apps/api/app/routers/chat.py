@@ -5,8 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.dependencies import get_current_user
 from app.llm.chat_service import send_chat_message
 from app.models.chat import ChatMessage, ChatSession
+from app.models.user import UserProfile
 from app.schemas.chat import (
     ChatMessageCreate,
     ChatMessageRead,
@@ -16,13 +18,14 @@ from app.schemas.chat import (
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-_DEFAULT_USER_ID = 1
-
 
 @router.post("/sessions", response_model=ChatSessionRead, status_code=201)
-async def create_session(db: Session = Depends(get_db)) -> ChatSession:
+async def create_session(
+    current_user: UserProfile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ChatSession:
     """Start a new chat session."""
-    session = ChatSession(user_id=_DEFAULT_USER_ID)
+    session = ChatSession(user_id=current_user.id)
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -32,11 +35,12 @@ async def create_session(db: Session = Depends(get_db)) -> ChatSession:
 @router.get("/sessions", response_model=list[ChatSessionRead])
 def list_sessions(
     limit: int = 20,
+    current_user: UserProfile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[ChatSession]:
     return db.scalars(  # type: ignore[return-value]
         select(ChatSession)
-        .where(ChatSession.user_id == _DEFAULT_USER_ID)
+        .where(ChatSession.user_id == current_user.id)
         .order_by(ChatSession.started_at.desc())
         .limit(limit)
     ).all()
@@ -46,16 +50,17 @@ def list_sessions(
 async def post_message(
     session_id: int,
     payload: ChatMessageCreate,
+    current_user: UserProfile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ChatResponse:
     """Send a user message and receive an AI assistant reply."""
     session = db.get(ChatSession, session_id)
-    if session is None or session.user_id != _DEFAULT_USER_ID:
+    if session is None or session.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Chat session not found.")
     assistant_msg = await send_chat_message(
         db,
         session_id,
-        _DEFAULT_USER_ID,
+        current_user.id,
         payload.content,
     )
     return ChatResponse(message=ChatMessageRead.model_validate(assistant_msg))
@@ -64,10 +69,11 @@ async def post_message(
 @router.get("/sessions/{session_id}/messages", response_model=list[ChatMessageRead])
 def get_messages(
     session_id: int,
+    current_user: UserProfile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[ChatMessage]:
     session = db.get(ChatSession, session_id)
-    if session is None or session.user_id != _DEFAULT_USER_ID:
+    if session is None or session.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Chat session not found.")
     return db.scalars(  # type: ignore[return-value]
         select(ChatMessage)

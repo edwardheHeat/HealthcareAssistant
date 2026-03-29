@@ -1,5 +1,9 @@
 import { request, BASE_URL } from "./api";
-import type { UserProfile, UserProfileCreate } from "@/types/user";
+import type {
+  UserLoginRequest,
+  UserProfileCreate,
+  UserSession,
+} from "@/types/user";
 import type {
   BasicIndicatorRecord,
   DietRecord,
@@ -11,9 +15,24 @@ import type { DashboardResponse, Alert } from "@/types/stats";
 import type { ChatSession, ChatMessage, ChatResponse } from "@/types/chat";
 
 // ---- User ---------------------------------------------------------------- //
-export const getMe = () => request<UserProfile>("/users/me");
-export const createUser = (data: UserProfileCreate) =>
-  request<UserProfile>("/users", { method: "POST", body: JSON.stringify(data) });
+export const getMe = () => request<UserSession>("/users/me");
+export const signup = (data: UserProfileCreate) =>
+  request<UserSession>("/users", { method: "POST", body: JSON.stringify(data) });
+export const createUser = signup;
+export const login = (data: UserLoginRequest) =>
+  request<UserSession>("/users/login", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+export const completeOnboarding = (data: {
+  injuries: string | null;
+  surgeries: string | null;
+  constraints: string | null;
+}) =>
+  request("/clinical/history", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
 
 // ---- Health Records ------------------------------------------------------ //
 export const postBasicIndicators = (data: { height_ft: number; weight_lbs: number }) =>
@@ -26,9 +45,19 @@ export const getBasicIndicators = (limit = 30) =>
   request<BasicIndicatorRecord[]>(`/health/basic-indicators?limit=${limit}`);
 
 export const postDiet = (formData: FormData) =>
-  fetch(`${BASE_URL}/health/diet`, { method: "POST", body: formData }).then(
-    (r) => r.json() as Promise<DietRecord>,
-  );
+  fetch(`${BASE_URL}/health/diet`, {
+    method: "POST",
+    body: formData,
+    headers:
+      typeof window !== "undefined" && window.localStorage.getItem("user_id")
+        ? { "X-User-ID": window.localStorage.getItem("user_id") ?? "" }
+        : undefined,
+  }).then(async (r) => {
+    if (!r.ok) {
+      throw new Error(await r.text().catch(() => "Request failed"));
+    }
+    return r.json() as Promise<DietRecord>;
+  });
 
 export const getDiet = (limit = 30) =>
   request<DietRecord[]>(`/health/diet?limit=${limit}`);

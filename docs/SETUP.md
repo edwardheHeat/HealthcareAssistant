@@ -98,7 +98,10 @@ cd apps/api
 uvicorn app.main:app --reload
 ```
 
-> **What happens on first start:** SQLite tables are created automatically. No migration step needed.
+> **What happens on first start:** SQLite tables are created automatically.
+> If you already have an older local SQLite file and the schema changes later,
+> SQLAlchemy will not alter existing tables for you. Either reset the DB file or
+> run the relevant manual migration script.
 
 | URL | Description |
 |-----|-------------|
@@ -182,6 +185,7 @@ All backend routes are prefixed with `/api/v1`.
 ## Architecture Notes
 
 - **Database:** SQLite file at `apps/api/healthcareassistant.db` (auto-created). No migration tool needed for MVP. To reset, delete the file.
+- **Schema changes on an existing DB:** `Base.metadata.create_all()` does not update existing tables. For example, if your local `alerts` table is missing the newer `severity` column, run `.\venv\Scripts\python.exe scripts\migrate_alerts_add_severity.py` from `apps/api`, or reset the SQLite file if you do not need existing data.
 - **MET calculation:** Deterministic lookup table in `services/met.py` — no LLM involved.
 - **Health monitor:** APScheduler async job runs every 24 hours inside the FastAPI process. Writes `Alert` rows for abnormal BMI/sleep/calories and stale metrics.
 - **LLM context:** The system prompt for chat is rebuilt per session from live stats + clinical history. Chat message history is stored in SQLite and replayed to the LLM on each turn.

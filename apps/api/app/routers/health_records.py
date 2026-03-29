@@ -1,12 +1,14 @@
 """Health records router."""
 
+from datetime import timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.dependencies import get_current_user
 from app.models.daily_tracking import (
     DailyBasicMetrics,
     DailyDiet,
@@ -27,50 +29,35 @@ from app.schemas.health_records import (
     SleepRecordCreate,
     SleepRecordRead,
 )
-
-
-from app.schemas.alerts import AlertRead
-from app.services.met import compute_met
+from app.services.analysis import analyze_after_submission
 from app.services.monitor import trigger_monitor
 from app.services.monitor_types import (
     BasicIndicatorSnapshot,
     DietSnapshot,
     ExerciseSnapshot,
     PeriodSnapshot,
-    SleepSnapshot,
 )
 from app.services.stats import build_user_stats_context
 
-from app.services.analysis import analyze_after_submission
-
-
 router = APIRouter(prefix="/health", tags=["health"])
-
-_DEFAULT_USER_ID = 1
-
-
-def _get_user_or_404(db: Session) -> UserProfile:
-    user = db.get(UserProfile, _DEFAULT_USER_ID)
-    if user is None:
-        raise HTTPException(status_code=404, detail="User not found. Create one first.")
-    return user
 
 
 def _upsert_daily_record(
     db: Session,
+    user_id: int,
     model: type[DailyBasicMetrics | DailyDiet | DailyExercise | DailySleep],
     record_date: Any,
     values: dict[str, Any],
 ) -> DailyBasicMetrics | DailyDiet | DailyExercise | DailySleep:
     record = db.scalars(
         select(model).where(
-            model.user_id == _DEFAULT_USER_ID,
+            model.user_id == user_id,
             model.date == record_date,
         )
     ).first()
 
     if record is None:
-        record = model(user_id=_DEFAULT_USER_ID, date=record_date, **values)
+        record = model(user_id=user_id, date=record_date, **values)
         db.add(record)
     else:
         for field, value in values.items():
@@ -78,21 +65,58 @@ def _upsert_daily_record(
     return record
 
 
+def _get_previous_basic_metrics(
+    db: Session,
+    user_id: int,
+    record_date: Any,
+) -> DailyBasicMetrics | None:
+    return db.scalars(
+        select(DailyBasicMetrics)
+        .where(
+            DailyBasicMetrics.user_id == user_id,
+            DailyBasicMetrics.date < record_date,
+        )
+        .order_by(DailyBasicMetrics.date.desc())
+        .limit(1)
+    ).first()
+
+
+def _build_exercise_snapshot(
+    db: Session,
+    user_id: int,
+    record: DailyExercise,
+    trend_stats: dict[str, Any],
+) -> ExerciseSnapshot:
+    records_7d = db.scalars(
+        select(DailyExercise.date).where(
+            DailyExercise.user_id == user_id,
+            DailyExercise.date >= record.date - timedelta(days=6),
+            DailyExercise.date <= record.date,
+        )
+    ).all()
+    records_30d = db.scalars(
+        select(DailyExercise.date).where(
+            DailyExercise.user_id == user_id,
+            DailyExercise.date >= record.date - timedelta(days=29),
+            DailyExercise.date <= record.date,
+        )
+    ).all()
+    return ExerciseSnapshot(
+        exercise_days_7d=len(records_7d),
+        exercise_days_30d_avg_per_week=round((len(records_30d) * 7) / 30, 2),
+        trend_stats=trend_stats,
+    )
+
+
 @router.post("/basic-indicators", response_model=BasicIndicatorRead, status_code=201)
 async def submit_basic_indicators(
     payload: BasicIndicatorCreate,
+    current_user: UserProfile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> DailyBasicMetrics:
-    _get_user_or_404(db)
-<<<<<<< HEAD
-    
-    prev_bi = db.scalars(select(BasicIndicatorRecord).where(BasicIndicatorRecord.user_id == _DEFAULT_USER_ID).order_by(BasicIndicatorRecord.recorded_at.desc()).limit(1)).first()
-    
-    record = BasicIndicatorRecord(user_id=_DEFAULT_USER_ID, **payload.model_dump())
-    db.add(record)
-=======
     record = _upsert_daily_record(
         db,
+        current_user.id,
         DailyBasicMetrics,
         payload.date,
         {
@@ -100,35 +124,32 @@ async def submit_basic_indicators(
             "weight_kg": payload.weight_kg,
         },
     )
->>>>>>> c3e846b (WIP Kiana: db+stat+analysis ver. 1)
     db.commit()
     db.refresh(record)
-    
-    trend_stats = build_user_stats_context(db, _DEFAULT_USER_ID)
-    cm = record.height_ft * 30.48
-    prev_cm = prev_bi.height_ft * 30.48 if prev_bi else None
-    kg = record.weight_lbs * 0.453592
-    prev_kg = prev_bi.weight_lbs * 0.453592 if prev_bi else None
+
+    previous = _get_previous_basic_metrics(db, current_user.id, record.date)
+    trend_stats = build_user_stats_context(db, current_user.id)
 
     snap = BasicIndicatorSnapshot(
-        current_height_cm=cm,
-        previous_height_cm=prev_cm,
-        current_weight_kg=kg,
-        previous_weight_kg=prev_kg,
+        current_height_cm=record.height_cm,
+        previous_height_cm=previous.height_cm if previous else None,
+        current_weight_kg=record.weight_kg,
+        previous_weight_kg=previous.weight_kg if previous else None,
         trend_stats=trend_stats,
     )
-    await trigger_monitor(db, _DEFAULT_USER_ID, snap)
+    await trigger_monitor(db, current_user.id, snap)
     return record
 
 
 @router.get("/basic-indicators", response_model=list[BasicIndicatorRead])
 def list_basic_indicators(
     limit: int = 30,
+    current_user: UserProfile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[DailyBasicMetrics]:
     return db.scalars(
         select(DailyBasicMetrics)
-        .where(DailyBasicMetrics.user_id == _DEFAULT_USER_ID)
+        .where(DailyBasicMetrics.user_id == current_user.id)
         .order_by(DailyBasicMetrics.date.desc())
         .limit(limit)
     ).all()
@@ -144,11 +165,11 @@ async def submit_diet(
     carbs_g: float = Form(0),
     fat_g: float = Form(0),
     food_image: UploadFile | None = File(None),
+    current_user: UserProfile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> DailyDiet:
-    _get_user_or_404(db)
     payload = DietRecordCreate(
-        user_id=_DEFAULT_USER_ID,
+        user_id=current_user.id,
         breakfast_calories=breakfast_calories,
         lunch_calories=lunch_calories,
         dinner_calories=dinner_calories,
@@ -164,6 +185,7 @@ async def submit_diet(
 
     record = _upsert_daily_record(
         db,
+        current_user.id,
         DailyDiet,
         payload.date,
         {
@@ -178,20 +200,26 @@ async def submit_diet(
     db.commit()
     db.refresh(record)
 
-    trend_stats = build_user_stats_context(db, _DEFAULT_USER_ID)
+    trend_stats = build_user_stats_context(db, current_user.id)
     snap = DietSnapshot(
-        current_calories=record.calorie_intake,
+        current_calories=(
+            record.breakfast_calories + record.lunch_calories + record.dinner_calories
+        ),
         trend_stats=trend_stats,
     )
-    await trigger_monitor(db, _DEFAULT_USER_ID, snap)
+    await trigger_monitor(db, current_user.id, snap)
     return record
 
 
 @router.get("/diet", response_model=list[DietRecordRead])
-def list_diet(limit: int = 30, db: Session = Depends(get_db)) -> list[DailyDiet]:
+def list_diet(
+    limit: int = 30,
+    current_user: UserProfile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[DailyDiet]:
     return db.scalars(
         select(DailyDiet)
-        .where(DailyDiet.user_id == _DEFAULT_USER_ID)
+        .where(DailyDiet.user_id == current_user.id)
         .order_by(DailyDiet.date.desc())
         .limit(limit)
     ).all()
@@ -200,11 +228,12 @@ def list_diet(limit: int = 30, db: Session = Depends(get_db)) -> list[DailyDiet]
 @router.post("/sleep", response_model=SleepRecordRead, status_code=201)
 def submit_sleep(
     payload: SleepRecordCreate,
+    current_user: UserProfile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> DailySleep:
-    _get_user_or_404(db)
     record = _upsert_daily_record(
         db,
+        current_user.id,
         DailySleep,
         payload.date,
         {
@@ -215,15 +244,19 @@ def submit_sleep(
     )
     db.commit()
     db.refresh(record)
-    analyze_after_submission(db, _DEFAULT_USER_ID)
+    analyze_after_submission(db, current_user.id)
     return record
 
 
 @router.get("/sleep", response_model=list[SleepRecordRead])
-def list_sleep(limit: int = 30, db: Session = Depends(get_db)) -> list[DailySleep]:
+def list_sleep(
+    limit: int = 30,
+    current_user: UserProfile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[DailySleep]:
     return db.scalars(
         select(DailySleep)
-        .where(DailySleep.user_id == _DEFAULT_USER_ID)
+        .where(DailySleep.user_id == current_user.id)
         .order_by(DailySleep.date.desc())
         .limit(limit)
     ).all()
@@ -232,26 +265,12 @@ def list_sleep(limit: int = 30, db: Session = Depends(get_db)) -> list[DailySlee
 @router.post("/exercise", response_model=ExerciseRecordRead, status_code=201)
 async def submit_exercise(
     payload: ExerciseRecordCreate,
+    current_user: UserProfile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> DailyExercise:
-    _get_user_or_404(db)
-<<<<<<< HEAD
-    user = db.get(UserProfile, _DEFAULT_USER_ID)
-    # Actually, we shouldn't calculate this if user is None, but _get_user_or_404 ensures it
-    met_value = compute_met(
-        activity_level=payload.work_activity_level,
-        intensity=payload.exercise_intensity,
-        duration_min=payload.duration_min,
-        age_years=user.age,
-        sex=user.sex,
-    )
-    record = ExerciseRecord(
-        user_id=_DEFAULT_USER_ID, met_value=met_value, **payload.model_dump()
-    )
-    db.add(record)
-=======
     record = _upsert_daily_record(
         db,
+        current_user.id,
         DailyExercise,
         payload.date,
         {
@@ -259,28 +278,24 @@ async def submit_exercise(
             "intensity": payload.intensity,
         },
     )
->>>>>>> c3e846b (WIP Kiana: db+stat+analysis ver. 1)
     db.commit()
     db.refresh(record)
 
-    trend_stats = build_user_stats_context(db, _DEFAULT_USER_ID)
-    snap = ExerciseSnapshot(
-        exercise_days_7d=1, # Mock default
-        exercise_days_30d_avg_per_week=1.0, 
-        trend_stats=trend_stats
-    )
-    await trigger_monitor(db, _DEFAULT_USER_ID, snap)
+    trend_stats = build_user_stats_context(db, current_user.id)
+    snap = _build_exercise_snapshot(db, current_user.id, record, trend_stats)
+    await trigger_monitor(db, current_user.id, snap)
     return record
 
 
 @router.get("/exercise", response_model=list[ExerciseRecordRead])
 def list_exercise(
     limit: int = 30,
+    current_user: UserProfile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[DailyExercise]:
     return db.scalars(
         select(DailyExercise)
-        .where(DailyExercise.user_id == _DEFAULT_USER_ID)
+        .where(DailyExercise.user_id == current_user.id)
         .order_by(DailyExercise.date.desc())
         .limit(limit)
     ).all()
@@ -289,30 +304,35 @@ def list_exercise(
 @router.post("/period", response_model=PeriodRecordRead, status_code=201)
 async def submit_period(
     payload: PeriodRecordCreate,
+    current_user: UserProfile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> PeriodRecord:
-    _get_user_or_404(db)
-    record = PeriodRecord(user_id=_DEFAULT_USER_ID, **payload.model_dump())
+    record = PeriodRecord(user_id=current_user.id, **payload.model_dump())
     db.add(record)
     db.commit()
     db.refresh(record)
 
     from datetime import date
-    trend_stats = build_user_stats_context(db, _DEFAULT_USER_ID)
+
+    trend_stats = build_user_stats_context(db, current_user.id)
     snap = PeriodSnapshot(
-        start_date=date.today(), # Mock default
+        start_date=date.today(),  # Mock default
         end_date=None,
         trend_stats=trend_stats,
     )
-    await trigger_monitor(db, _DEFAULT_USER_ID, snap)
+    await trigger_monitor(db, current_user.id, snap)
     return record
 
 
 @router.get("/period", response_model=list[PeriodRecordRead])
-def list_period(limit: int = 30, db: Session = Depends(get_db)) -> list[PeriodRecord]:
+def list_period(
+    limit: int = 30,
+    current_user: UserProfile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[PeriodRecord]:
     return db.scalars(
         select(PeriodRecord)
-        .where(PeriodRecord.user_id == _DEFAULT_USER_ID)
+        .where(PeriodRecord.user_id == current_user.id)
         .order_by(PeriodRecord.recorded_at.desc())
         .limit(limit)
     ).all()
