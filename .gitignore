@@ -31,3 +31,6 @@ apps/web/out/
 # IDE
 .vscode/
 .idea/
+
+# Python virtual environment
+apps/api/venv/
