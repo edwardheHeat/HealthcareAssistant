@@ -30,6 +30,7 @@ from app.schemas.health_records import (
     SleepRecordRead,
 )
 from app.services.analysis import analyze_after_submission
+from app.services.analysis_generation import refresh_dashboard_analysis
 from app.services.monitor import trigger_monitor
 from app.services.monitor_types import (
     BasicIndicatorSnapshot,
@@ -138,6 +139,7 @@ async def submit_basic_indicators(
         trend_stats=trend_stats,
     )
     await trigger_monitor(db, current_user.id, snap)
+    refresh_dashboard_analysis(db, current_user.id)
     return record
 
 
@@ -208,6 +210,7 @@ async def submit_diet(
         trend_stats=trend_stats,
     )
     await trigger_monitor(db, current_user.id, snap)
+    refresh_dashboard_analysis(db, current_user.id)
     return record
 
 
@@ -284,6 +287,7 @@ async def submit_exercise(
     trend_stats = build_user_stats_context(db, current_user.id)
     snap = _build_exercise_snapshot(db, current_user.id, record, trend_stats)
     await trigger_monitor(db, current_user.id, snap)
+    refresh_dashboard_analysis(db, current_user.id)
     return record
 
 
@@ -321,6 +325,7 @@ async def submit_period(
         trend_stats=trend_stats,
     )
     await trigger_monitor(db, current_user.id, snap)
+    refresh_dashboard_analysis(db, current_user.id)
     return record
 
 

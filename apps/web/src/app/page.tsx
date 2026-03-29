@@ -1,32 +1,19 @@
-"use client";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+export default async function Home() {
+  const cookieStore = await cookies();
+  const userId = cookieStore.get("ha_user_id")?.value;
+  const onboardingComplete =
+    cookieStore.get("ha_onboarding_complete")?.value === "true";
 
-import { getSession } from "@/lib/auth";
+  if (!userId) {
+    redirect("/login");
+  }
 
-export default function Home() {
-  const router = useRouter();
+  if (!onboardingComplete) {
+    redirect("/onboarding");
+  }
 
-  useEffect(() => {
-    const session = getSession();
-
-    if (!session) {
-      router.replace("/login");
-      return;
-    }
-
-    if (!session.onboarding_complete) {
-      router.replace("/onboarding");
-      return;
-    }
-
-    router.replace("/dashboard");
-  }, [router]);
-
-  return (
-    <div style={{ display: "flex", justifyContent: "center", paddingTop: 80 }}>
-      <div className="spinner" />
-    </div>
-  );
+  redirect("/dashboard");
 }

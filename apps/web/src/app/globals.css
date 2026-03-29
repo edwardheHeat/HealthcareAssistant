@@ -348,6 +348,17 @@ a:hover { opacity: 0.8; }
   background: var(--bg-elevated);
 }
 
+.btn-danger {
+  border-color: rgba(248, 113, 113, 0.35);
+  color: var(--rose);
+}
+
+.btn-danger:hover {
+  border-color: var(--rose);
+  color: #fff;
+  background: rgba(248, 113, 113, 0.16);
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -601,6 +612,36 @@ a:hover { opacity: 0.8; }
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: var(--space-md);
+}
+
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.settings-label {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.settings-value {
+  color: var(--text-primary);
+  font-weight: 600;
+  text-align: right;
 }
 
 @media (max-width: 1100px) {
