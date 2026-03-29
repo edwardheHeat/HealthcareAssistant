@@ -12,6 +12,11 @@ class AlertType(str, enum.Enum):
     stale = "stale"  # metric not updated in too long
 
 
+class AlertSeverity(str, enum.Enum):
+    warning = "warning"
+    critical = "critical"
+
+
 class Alert(Base):
     __tablename__ = "alerts"
 
@@ -22,6 +27,10 @@ class Alert(Base):
     )
     alert_type: Mapped[AlertType] = mapped_column(
         Enum(AlertType, name="alert_type")
+    )
+    severity: Mapped[AlertSeverity] = mapped_column(
+        Enum(AlertSeverity, name="alert_severity"),
+        default=AlertSeverity.warning,
     )
     # Which metric triggered this: "weight", "sleep", "calories", etc.
     metric: Mapped[str] = mapped_column(String(80))

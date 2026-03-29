@@ -10,29 +10,12 @@ class ApiError extends Error {
   }
 }
 
-<<<<<<< HEAD
-function getAuthHeaders(): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  const userId = localStorage.getItem("user_id");
-  return userId ? { "X-User-ID": userId } : {};
-}
-
-=======
->>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
 async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
-<<<<<<< HEAD
-    headers: {
-      "Content-Type": "application/json",
-      ...getAuthHeaders(),
-      ...options.headers,
-    },
-=======
     headers: { "Content-Type": "application/json", ...options.headers },
->>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
     ...options,
   });
   if (!res.ok) {
@@ -42,8 +25,4 @@ async function request<T>(
   return res.json() as Promise<T>;
 }
 
-<<<<<<< HEAD
-export { request, ApiError, BASE_URL, getAuthHeaders };
-=======
 export { request, ApiError, BASE_URL };
->>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156

@@ -48,6 +48,7 @@ export interface Alert {
   user_id: number;
   created_at: string;
   alert_type: "abnormal" | "stale";
+  severity: "warning" | "critical";
   metric: string;
   message: string;
   is_read: boolean;

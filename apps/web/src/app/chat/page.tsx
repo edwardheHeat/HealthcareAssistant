@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   createChatSession,
   getChatSessions,
@@ -48,7 +49,8 @@ function TypingIndicator() {
   );
 }
 
-export default function ChatPage() {
+function ChatPageInner() {
+  const searchParams = useSearchParams();
   const [session, setSession] = useState<ChatSession | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -56,6 +58,7 @@ export default function ChatPage() {
   const [typing, setTyping] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const didAutoSend = useRef(false);
 
   useEffect(() => {
     initSession();
@@ -75,8 +78,46 @@ export default function ChatPage() {
       setSession(activeSession);
       const history = await getMessages(activeSession.id);
       setMessages(history);
+
+      // Auto-send prompt from query param (e.g. from "Ask LLM" in alerts)
+      const promptParam = searchParams.get("prompt");
+      if (promptParam && !didAutoSend.current) {
+        didAutoSend.current = true;
+        await sendPromptMessage(activeSession, promptParam);
+      }
     } catch (e: unknown) {
       setInitError(e instanceof Error ? e.message : "Failed to connect. Start the backend first.");
+    }
+  };
+
+  const sendPromptMessage = async (activeSession: ChatSession, text: string) => {
+    setLoading(true);
+    const tempUserMsg: ChatMessage = {
+      id: Date.now(),
+      session_id: activeSession.id,
+      role: "user",
+      content: text,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempUserMsg]);
+    setTyping(true);
+    try {
+      const res = await sendMessage(activeSession.id, text);
+      setMessages((prev) => [...prev, res.message]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now() + 1,
+          session_id: activeSession.id,
+          role: "assistant",
+          content: "⚠️ Something went wrong. Please try again.",
+          created_at: new Date().toISOString(),
+        },
+      ]);
+    } finally {
+      setLoading(false);
+      setTyping(false);
     }
   };
 
@@ -225,5 +266,13 @@ export default function ChatPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<div style={{ display: "flex", justifyContent: "center", paddingTop: 80 }}><div className="spinner" /></div>}>
+      <ChatPageInner />
+    </Suspense>
   );
 }

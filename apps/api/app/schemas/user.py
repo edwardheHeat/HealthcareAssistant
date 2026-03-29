@@ -15,29 +15,5 @@ class UserProfileRead(BaseModel):
     account_id: str
     age: int
     sex: str
-<<<<<<< HEAD
-    onboarding_complete: bool
 
     model_config = {"from_attributes": True}
-
-
-class LoginRequest(BaseModel):
-    account_id: str
-    password: str
-
-
-class LoginResponse(BaseModel):
-    user_id: int
-    name: str
-    onboarding_complete: bool
-
-
-class OnboardingComplete(BaseModel):
-    """Payload sent when the user finishes the onboarding questionnaire."""
-    injuries: str | None = None
-    surgeries: str | None = None
-    constraints: str | None = None
-=======
-
-    model_config = {"from_attributes": True}
->>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156

@@ -72,6 +72,17 @@ export const getAlerts = (unreadOnly = false) =>
 export const markAlertRead = (id: number) =>
   request<Alert>(`/alerts/${id}/read`, { method: "PATCH" });
 
+export const deleteAlert = (id: number) =>
+  request<void>(`/alerts/${id}`, { method: "DELETE" });
+
+export const deleteAlerts = (params: { afterDate?: string; beforeDate?: string }) => {
+  const q = new URLSearchParams();
+  if (params.afterDate) q.set("after_date", params.afterDate);
+  if (params.beforeDate) q.set("before_date", params.beforeDate);
+  const qs = q.toString() ? `?${q.toString()}` : "";
+  return request<void>(`/alerts${qs}`, { method: "DELETE" });
+};
+
 // ---- Chat ---------------------------------------------------------------- //
 export const createChatSession = () =>
   request<ChatSession>("/chat/sessions", { method: "POST", body: "{}" });
@@ -87,31 +98,3 @@ export const sendMessage = (sessionId: number, content: string) =>
 
 export const getMessages = (sessionId: number) =>
   request<ChatMessage[]>(`/chat/sessions/${sessionId}/messages`);
-<<<<<<< HEAD
-
-// ---- Auth ---------------------------------------------------------------- //
-export const signup = (data: {
-  name: string;
-  account_id: string;
-  password: string;
-  age: number;
-  sex: "M" | "F";
-}) => request<{ id: number; name: string; account_id: string; age: number; sex: string; onboarding_complete: boolean }>("/users", { method: "POST", body: JSON.stringify(data) });
-
-export const login = (data: { account_id: string; password: string }) =>
-  request<{ user_id: number; name: string; onboarding_complete: boolean }>("/users/login", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-
-export const completeOnboarding = (data: {
-  injuries?: string | null;
-  surgeries?: string | null;
-  constraints?: string | null;
-}) =>
-  request<{ id: number; onboarding_complete: boolean }>("/users/onboarding", {
-    method: "POST",
-    body: JSON.stringify(data),
-  });
-=======
->>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156

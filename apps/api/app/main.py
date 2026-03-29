@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401 — ensures all ORM models are registered
 from app.db import Base, SessionLocal, engine
-from app.routers import alerts, chat, clinical, health_records, stats, users
+from app.routers import alerts, chat, clinical, health_records, monitor, stats, users
 
 
 @asynccontextmanager
@@ -60,6 +60,7 @@ app.include_router(clinical.router, prefix=_PREFIX)
 app.include_router(stats.router, prefix=_PREFIX)
 app.include_router(alerts.router, prefix=_PREFIX)
 app.include_router(chat.router, prefix=_PREFIX)
+app.include_router(monitor.router, prefix=_PREFIX)
 
 
 @app.get("/health")

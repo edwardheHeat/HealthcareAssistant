@@ -1,13 +1,10 @@
 "use client";
 
 import Link from "next/link";
-<<<<<<< HEAD
-import { usePathname, useRouter } from "next/navigation";
-import { getSession, clearSession } from "@/lib/auth";
-import { useEffect, useState } from "react";
-=======
 import { usePathname } from "next/navigation";
->>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
+import { useState } from "react";
+import { useAlerts } from "@/hooks/useAlerts";
+import NotificationPanel from "@/components/notifications/NotificationPanel";
 
 const NAV_ITEMS = [
   { href: "/dashboard", icon: "📊", label: "Dashboard" },
@@ -17,60 +14,80 @@ const NAV_ITEMS = [
 
 export default function SidebarNav() {
   const pathname = usePathname();
-<<<<<<< HEAD
-  const router = useRouter();
-  const [userName, setUserName] = useState<string | null>(null);
-
-  useEffect(() => {
-    const session = getSession();
-    setUserName(session?.name ?? null);
-  }, []);
-
-  const handleLogout = () => {
-    clearSession();
-    router.push("/login");
-  };
-=======
->>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
+  const {
+    alerts,
+    unreadCount,
+    isOpen,
+    openPanel,
+    closePanel,
+    dismissAlert,
+    deleteAlert,
+    deleteDay,
+    deleteAll,
+  } = useAlerts();
 
   return (
-    <nav className="sidebar">
-      <div className="sidebar-logo">
-        <div className="sidebar-logo-icon">🫀</div>
-        <div className="sidebar-logo-text">
-          Health<span>AI</span>
-        </div>
-      </div>
-
-      {NAV_ITEMS.map((item) => (
-        <Link
-          key={item.href}
-          href={item.href}
-          className={`nav-link ${pathname.startsWith(item.href) ? "active" : ""}`}
-        >
-          <span className="nav-icon">{item.icon}</span>
-          {item.label}
-        </Link>
-      ))}
-<<<<<<< HEAD
-
-      <div style={{ marginTop: "auto", padding: "16px 12px", borderTop: "1px solid var(--border)" }}>
-        {userName && (
-          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: 10, paddingLeft: 4 }}>
-            👤 {userName}
+    <>
+      <nav className="sidebar">
+        <div className="sidebar-logo">
+          <div className="sidebar-logo-icon">🫀</div>
+          <div className="sidebar-logo-text">
+            Health<span>AI</span>
           </div>
-        )}
+        </div>
+
+        {NAV_ITEMS.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`nav-link ${pathname.startsWith(item.href) ? "active" : ""}`}
+          >
+            <span className="nav-icon">{item.icon}</span>
+            {item.label}
+          </Link>
+        ))}
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Notification inbox */}
         <button
-          onClick={handleLogout}
-          className="nav-link"
-          style={{ width: "100%", background: "none", border: "none", cursor: "pointer", color: "var(--text-secondary)", textAlign: "left" }}
+          onClick={openPanel}
+          className="inbox-btn"
+          title="Inbox / Alerts"
         >
-          <span className="nav-icon">🚪</span>
-          Log out
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline>
+            <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+          </svg>
+          {unreadCount > 0 && (
+            <span className="inbox-badge">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          )}
         </button>
-      </div>
-=======
->>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
-    </nav>
+      </nav>
+
+      {isOpen && (
+        <NotificationPanel
+          alerts={alerts}
+          onClose={closePanel}
+          onDelete={deleteAlert}
+          onDismiss={dismissAlert}
+          onDeleteDay={deleteDay}
+          onDeleteAll={deleteAll}
+        />
+      )}
+    </>
   );
 }

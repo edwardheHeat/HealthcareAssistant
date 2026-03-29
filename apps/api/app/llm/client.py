@@ -18,3 +18,19 @@ def get_llm_client() -> AsyncOpenAI:
             api_key=settings.llm_api_key,
         )
     return _client
+
+
+async def call_llm(system: str, user: str) -> str:
+    """Single-turn LLM call shared across chat_service, alert_writer, etc.
+
+    Returns the assistant reply as a plain string.
+    """
+    client = get_llm_client()
+    resp = await client.chat.completions.create(
+        model=settings.llm_model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    )
+    return resp.choices[0].message.content or ""
