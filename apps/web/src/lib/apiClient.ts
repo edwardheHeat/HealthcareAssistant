@@ -87,6 +87,7 @@ export const sendMessage = (sessionId: number, content: string) =>
 
 export const getMessages = (sessionId: number) =>
   request<ChatMessage[]>(`/chat/sessions/${sessionId}/messages`);
+<<<<<<< HEAD
 
 // ---- Auth ---------------------------------------------------------------- //
 export const signup = (data: {
@@ -112,3 +113,5 @@ export const completeOnboarding = (data: {
     method: "POST",
     body: JSON.stringify(data),
   });
+=======
+>>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156

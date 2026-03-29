@@ -1,9 +1,13 @@
 "use client";
 
 import Link from "next/link";
+<<<<<<< HEAD
 import { usePathname, useRouter } from "next/navigation";
 import { getSession, clearSession } from "@/lib/auth";
 import { useEffect, useState } from "react";
+=======
+import { usePathname } from "next/navigation";
+>>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
 
 const NAV_ITEMS = [
   { href: "/dashboard", icon: "📊", label: "Dashboard" },
@@ -13,6 +17,7 @@ const NAV_ITEMS = [
 
 export default function SidebarNav() {
   const pathname = usePathname();
+<<<<<<< HEAD
   const router = useRouter();
   const [userName, setUserName] = useState<string | null>(null);
 
@@ -25,6 +30,8 @@ export default function SidebarNav() {
     clearSession();
     router.push("/login");
   };
+=======
+>>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
 
   return (
     <nav className="sidebar">
@@ -45,6 +52,7 @@ export default function SidebarNav() {
           {item.label}
         </Link>
       ))}
+<<<<<<< HEAD
 
       <div style={{ marginTop: "auto", padding: "16px 12px", borderTop: "1px solid var(--border)" }}>
         {userName && (
@@ -61,6 +69,8 @@ export default function SidebarNav() {
           Log out
         </button>
       </div>
+=======
+>>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
     </nav>
   );
 }

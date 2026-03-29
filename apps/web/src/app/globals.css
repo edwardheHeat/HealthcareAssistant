@@ -613,6 +613,7 @@ a:hover { opacity: 0.8; }
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
   .form-row { grid-template-columns: 1fr; }
 }
+<<<<<<< HEAD
 
 /* ============================================================
    Sidebar footer / user info
@@ -1013,3 +1014,5 @@ a:hover { opacity: 0.8; }
   align-items: center;
   margin-top: var(--space-lg);
 }
+=======
+>>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156

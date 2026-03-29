@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 from sqlalchemy import Boolean, CheckConstraint, String
+=======
+from sqlalchemy import CheckConstraint, String
+>>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -17,5 +21,8 @@ class UserProfile(Base):
         String(1),
         CheckConstraint("sex IN ('M', 'F')", name="ck_sex"),
     )
+<<<<<<< HEAD
     # Set to True after the user completes the onboarding questionnaire
     onboarding_complete: Mapped[bool] = mapped_column(Boolean, default=False)
+=======
+>>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156

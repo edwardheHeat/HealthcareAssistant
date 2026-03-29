@@ -4,7 +4,10 @@ export interface UserProfile {
   account_id: string;
   age: number;
   sex: "M" | "F";
+<<<<<<< HEAD
   onboarding_complete: boolean;
+=======
+>>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
 }
 
 export interface UserProfileCreate {
@@ -14,6 +17,7 @@ export interface UserProfileCreate {
   age: number;
   sex: "M" | "F";
 }
+<<<<<<< HEAD
 
 export interface LoginRequest {
   account_id: string;
@@ -25,3 +29,5 @@ export interface LoginResponse {
   name: string;
   onboarding_complete: boolean;
 }
+=======
+>>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156

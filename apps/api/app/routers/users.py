@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 """User profile router — signup, login, onboarding."""
+=======
+"""User profile router."""
+>>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
 
 import hashlib
 
@@ -7,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+<<<<<<< HEAD
 from app.dependencies import get_current_user
 from app.models.clinical import ClinicalHistory
 from app.models.user import UserProfile
@@ -23,15 +28,28 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 def _hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
+=======
+from app.models.user import UserProfile
+from app.schemas.user import UserProfileCreate, UserProfileRead
+
+router = APIRouter(prefix="/users", tags=["users"])
+
+# MVP: single user, hardcoded id=1
+_DEFAULT_USER_ID = 1
+>>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
 
 
 @router.post("", response_model=UserProfileRead, status_code=201)
 def create_user(payload: UserProfileCreate, db: Session = Depends(get_db)) -> UserProfile:
+<<<<<<< HEAD
     """Register a new account."""
+=======
+>>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
     existing = db.scalars(
         select(UserProfile).where(UserProfile.account_id == payload.account_id)
     ).first()
     if existing:
+<<<<<<< HEAD
         raise HTTPException(status_code=409, detail="Account ID already taken.")
     user = UserProfile(
         name=payload.name,
@@ -40,6 +58,15 @@ def create_user(payload: UserProfileCreate, db: Session = Depends(get_db)) -> Us
         age=payload.age,
         sex=payload.sex,
         onboarding_complete=False,
+=======
+        raise HTTPException(status_code=409, detail="Account ID already exists.")
+    user = UserProfile(
+        name=payload.name,
+        account_id=payload.account_id,
+        password_hash=hashlib.sha256(payload.password.encode()).hexdigest(),
+        age=payload.age,
+        sex=payload.sex,
+>>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
     )
     db.add(user)
     db.commit()
@@ -47,6 +74,7 @@ def create_user(payload: UserProfileCreate, db: Session = Depends(get_db)) -> Us
     return user
 
 
+<<<<<<< HEAD
 @router.post("/login", response_model=LoginResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
     """Authenticate and return the user's ID for client-side storage."""
@@ -96,3 +124,11 @@ def complete_onboarding(
     db.commit()
     db.refresh(current_user)
     return current_user
+=======
+@router.get("/me", response_model=UserProfileRead)
+def get_me(db: Session = Depends(get_db)) -> UserProfile:
+    user = db.get(UserProfile, _DEFAULT_USER_ID)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found.")
+    return user
+>>>>>>> 32e7e8429f7cd41eff9a8ad873be60f1e5e19156
