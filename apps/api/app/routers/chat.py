@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.llm.chat_service import get_or_create_session, send_chat_message
+from app.llm.chat_service import send_chat_message
 from app.models.chat import ChatMessage, ChatSession
 from app.schemas.chat import (
     ChatMessageCreate,
@@ -52,7 +52,12 @@ async def post_message(
     session = db.get(ChatSession, session_id)
     if session is None or session.user_id != _DEFAULT_USER_ID:
         raise HTTPException(status_code=404, detail="Chat session not found.")
-    assistant_msg = await send_chat_message(db, session_id, _DEFAULT_USER_ID, payload.content)
+    assistant_msg = await send_chat_message(
+        db,
+        session_id,
+        _DEFAULT_USER_ID,
+        payload.content,
+    )
     return ChatResponse(message=ChatMessageRead.model_validate(assistant_msg))
 
 

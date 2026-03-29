@@ -1,20 +1,13 @@
-from datetime import date, datetime
+from datetime import date
 
 from pydantic import BaseModel
 
-
-class ClinicalHistoryCreate(BaseModel):
-    injuries: str | None = None
-    surgeries: str | None = None
-    constraints: str | None = None
-
-
-class ClinicalHistoryRead(ClinicalHistoryCreate):
-    id: int
-    user_id: int
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
+from app.schemas.medical import (
+    ClinicalHistoryCreate as ClinicalHistoryCreate,
+)
+from app.schemas.medical import (
+    ClinicalHistoryRead as ClinicalHistoryRead,
+)
 
 
 class ClinicVisitReportCreate(BaseModel):

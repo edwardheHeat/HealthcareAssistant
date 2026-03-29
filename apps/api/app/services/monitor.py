@@ -1,3 +1,4 @@
+
 """Health monitor service — redesigned.
 
 Entry point: trigger_monitor(db, user_id, snapshot)
@@ -10,8 +11,16 @@ saving a health record. It:
   4. Persists one Alert row and returns it (or None if clean).
 """
 
+
+"""Health monitor service."""
+
+from datetime import UTC, date, datetime
+
+from sqlalchemy import select
+
 from sqlalchemy.orm import Session
 from datetime import date
+
 
 from app.llm.alert_writer import AbnormalFinding, generate_alert_message
 from app.models.alerts import Alert, AlertSeverity, AlertType
@@ -24,6 +33,16 @@ from app.services.monitor_types import (
     PeriodSnapshot,
     SleepSnapshot,
 )
+from app.models.alerts import Alert, AlertType
+from app.models.daily_tracking import (
+    DailyBasicMetrics,
+    DailyDiet,
+    DailyExercise,
+    DailySleep,
+
+)
+from app.models.health_records import PeriodRecord
+
 
 # ---------------------------------------------------------------------------
 # Per-indicator check functions
@@ -182,10 +201,21 @@ _CHECKS: dict[str, list] = {
     "exercise": [check_exercise_frequency],
     "period": [check_cycle_phase],
 }
+_NOW = lambda: datetime.now(tz=UTC)  # noqa: E731
+
+_STALE_THRESHOLDS: dict[str, int] = {
+    "basic_indicators": 7,
+    "diet": 3,
+    "sleep": 3,
+    "exercise": 7,
+    "period": 14,
+
+}
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 async def trigger_monitor(
     db: Session,
@@ -225,3 +255,239 @@ async def trigger_monitor(
     db.commit()
     db.refresh(alert)
     return alert
+
+def _as_datetime(value: date | datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    return datetime.combine(value, datetime.min.time(), tzinfo=UTC)
+
+
+def _daily_exercise_met(duration_minutes: int, intensity: str) -> float:
+    intensity_met = {"low": 3.0, "medium": 6.0, "high": 9.0}[intensity]
+    exercise_hours = duration_minutes / 60.0
+    rest_hours = max(0.0, 16.0 - exercise_hours)
+    return (intensity_met * exercise_hours + 1.5 * rest_hours) / 16.0
+
+
+def _add_alert(
+    db: Session,
+    user_id: int,
+    alert_type: AlertType,
+    metric: str,
+    message: str,
+) -> None:
+    existing = db.scalars(
+        select(Alert).where(
+            Alert.user_id == user_id,
+            Alert.metric == metric,
+            Alert.alert_type == alert_type,
+            Alert.is_read == False,  # noqa: E712
+        )
+    ).first()
+    if existing:
+        return
+    db.add(
+        Alert(
+            user_id=user_id,
+            alert_type=alert_type,
+            metric=metric,
+            message=message,
+        )
+    )
+
+
+def _check_stale(db: Session, user_id: int) -> None:
+    now = _NOW()
+    checks: list[tuple[str, datetime | None]] = [
+        (
+            "basic_indicators",
+            _as_datetime(
+                db.scalars(
+                    select(DailyBasicMetrics.date)
+                    .where(DailyBasicMetrics.user_id == user_id)
+                    .order_by(DailyBasicMetrics.date.desc())
+                    .limit(1)
+                ).first()
+            ),
+        ),
+        (
+            "diet",
+            _as_datetime(
+                db.scalars(
+                    select(DailyDiet.date)
+                    .where(DailyDiet.user_id == user_id)
+                    .order_by(DailyDiet.date.desc())
+                    .limit(1)
+                ).first()
+            ),
+        ),
+        (
+            "sleep",
+            _as_datetime(
+                db.scalars(
+                    select(DailySleep.date)
+                    .where(DailySleep.user_id == user_id)
+                    .order_by(DailySleep.date.desc())
+                    .limit(1)
+                ).first()
+            ),
+        ),
+        (
+            "exercise",
+            _as_datetime(
+                db.scalars(
+                    select(DailyExercise.date)
+                    .where(DailyExercise.user_id == user_id)
+                    .order_by(DailyExercise.date.desc())
+                    .limit(1)
+                ).first()
+            ),
+        ),
+        (
+            "period",
+            _as_datetime(
+                db.scalars(
+                    select(PeriodRecord.recorded_at)
+                    .where(PeriodRecord.user_id == user_id)
+                    .order_by(PeriodRecord.recorded_at.desc())
+                    .limit(1)
+                ).first()
+            ),
+        ),
+    ]
+
+    for metric, last_at in checks:
+        threshold_days = _STALE_THRESHOLDS[metric]
+        if last_at is None:
+            days_old = threshold_days + 1
+        else:
+            days_old = (now - last_at).days
+
+        if days_old >= threshold_days:
+            _add_alert(
+                db,
+                user_id,
+                AlertType.stale,
+                metric,
+                f"Your {metric.replace('_', ' ')} has not been updated "
+                f"in {days_old} day(s). "
+                f"Please log your data to keep your health profile accurate.",
+            )
+
+
+def _check_abnormal(db: Session, user_id: int) -> None:
+    latest_basic = db.scalars(
+        select(DailyBasicMetrics)
+        .where(DailyBasicMetrics.user_id == user_id)
+        .order_by(DailyBasicMetrics.date.desc())
+        .limit(1)
+    ).first()
+    if latest_basic:
+        height_m = latest_basic.height_cm / 100.0
+        bmi = latest_basic.weight_kg / (height_m**2) if height_m else 0
+        if bmi > 0 and (bmi < 18.5 or bmi > 30):
+            category = "underweight" if bmi < 18.5 else "obese range"
+            _add_alert(
+                db,
+                user_id,
+                AlertType.abnormal,
+                "bmi",
+                f"Your current BMI is {bmi:.1f}, which falls in the {category}. "
+                "Consider consulting a healthcare provider.",
+            )
+
+    latest_sleep = db.scalars(
+        select(DailySleep)
+        .where(DailySleep.user_id == user_id)
+        .order_by(DailySleep.date.desc())
+        .limit(1)
+    ).first()
+    if latest_sleep:
+        hours = (
+            latest_sleep.sleep_end - latest_sleep.sleep_start
+        ).total_seconds() / 3600
+        if hours < 5.0:
+            _add_alert(
+                db,
+                user_id,
+                AlertType.abnormal,
+                "sleep",
+                f"You slept only {hours:.1f} hours last night, "
+                "well below the recommended 7 to 9 hours.",
+            )
+        elif hours > 10.0:
+            _add_alert(
+                db,
+                user_id,
+                AlertType.abnormal,
+                "sleep",
+                f"You slept {hours:.1f} hours last night. "
+                "Consistently sleeping over 10 hours may indicate an "
+                "underlying issue.",
+            )
+
+    latest_diet = db.scalars(
+        select(DailyDiet)
+        .where(DailyDiet.user_id == user_id)
+        .order_by(DailyDiet.date.desc())
+        .limit(1)
+    ).first()
+    if latest_diet:
+        calories = (
+            latest_diet.breakfast_calories
+            + latest_diet.lunch_calories
+            + latest_diet.dinner_calories
+        )
+        if calories < 1000:
+            _add_alert(
+                db,
+                user_id,
+                AlertType.abnormal,
+                "calories",
+                f"Your logged calorie intake ({calories:.0f} kcal) "
+                "is very low. Severe calorie restriction can be harmful.",
+            )
+        elif calories > 5000:
+            _add_alert(
+                db,
+                user_id,
+                AlertType.abnormal,
+                "calories",
+                f"Your logged calorie intake ({calories:.0f} kcal) "
+                "is unusually high. If this is sustained, it may impact "
+                "your health goals.",
+            )
+
+    latest_exercise = db.scalars(
+        select(DailyExercise)
+        .where(DailyExercise.user_id == user_id)
+        .order_by(DailyExercise.date.desc())
+        .limit(1)
+    ).first()
+    if latest_exercise:
+        met_value = _daily_exercise_met(
+            latest_exercise.duration_minutes,
+            latest_exercise.intensity,
+        )
+        if met_value > 8.0 and latest_exercise.duration_minutes > 180:
+            _add_alert(
+                db,
+                user_id,
+                AlertType.abnormal,
+                "exercise",
+                "Your recent exercise load was unusually intense and "
+                "prolonged. Make sure you are recovering adequately.",
+            )
+
+
+def run_monitor(db: Session, user_id: int) -> list[Alert]:
+    before_ids = set(db.scalars(select(Alert.id).where(Alert.user_id == user_id)).all())
+    _check_stale(db, user_id)
+    _check_abnormal(db, user_id)
+    db.commit()
+    after_ids = set(db.scalars(select(Alert.id).where(Alert.user_id == user_id)).all())
+    new_ids = after_ids - before_ids
+    return db.scalars(select(Alert).where(Alert.id.in_(new_ids))).all()
+

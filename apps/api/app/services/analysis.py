@@ -7,9 +7,12 @@ the API response, giving the frontend immediate feedback.
 from sqlalchemy.orm import Session
 
 from app.models.alerts import Alert
+from app.services.analysis_generation import refresh_dashboard_analysis
 from app.services.monitor import run_monitor
 
 
 def analyze_after_submission(db: Session, user_id: int) -> list[Alert]:
-    """Run health monitor checks and return newly raised alerts."""
-    return run_monitor(db, user_id)
+    """Run health monitor checks and refresh stored dashboard analysis."""
+    alerts = run_monitor(db, user_id)
+    refresh_dashboard_analysis(db, user_id)
+    return alerts

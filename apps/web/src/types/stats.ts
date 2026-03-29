@@ -1,46 +1,103 @@
-export interface DietStats {
-  avg_calories_7d: number | null;
-  calorie_variance_7d: number | null;
-  calorie_deficit_surplus_vs_tdee: number | null;
-  estimated_tdee: number | null;
-  avg_protein_g_7d: number | null;
-  avg_carbs_g_7d: number | null;
-  avg_fat_g_7d: number | null;
-  last_recorded_at: string | null;
+export interface ChartPoint {
+  date: string;
+  value: number | null;
 }
 
-export interface SleepStats {
-  avg_duration_hrs_7d: number | null;
-  sleep_consistency_score: number | null;
-  deviation_from_recommended_hrs: number | null;
-  last_recorded_at: string | null;
+export interface BasicStats {
+  avg_weight_7d: number | null;
+  avg_weight_30d: number | null;
+  previous_avg_weight_30d: number | null;
+  weight_trend: number | null;
+  latest_weight_kg: number | null;
+  bar_chart_data: {
+    last_7_days: ChartPoint[];
+    last_30_days: ChartPoint[];
+  };
+}
+
+export interface DietStats {
+  avg_calories_7d: number | null;
+  avg_calories_30d: number | null;
+  previous_avg_calories_30d: number | null;
+  calories_trend: number | null;
+  avg_protein_g_7d: number | null;
+  avg_protein_g_30d: number | null;
+  avg_carbs_g_7d: number | null;
+  avg_carbs_g_30d: number | null;
+  avg_fat_g_7d: number | null;
+  avg_fat_g_30d: number | null;
+  bar_chart_data: {
+    last_7_days: ChartPoint[];
+    last_30_days: ChartPoint[];
+  };
 }
 
 export interface ExerciseStats {
-  avg_daily_met_30d: number | null;
-  cardio_sessions_per_week: number | null;
-  activity_trend: string | null;
-  last_recorded_at: string | null;
+  avg_duration_7d: number | null;
+  avg_duration_30d: number | null;
+  previous_avg_duration_30d: number | null;
+  duration_trend: number | null;
+  intensity_distribution: {
+    low: number;
+    medium: number;
+    high: number;
+  };
+  bar_chart_data: {
+    last_7_days: ChartPoint[];
+    last_30_days: ChartPoint[];
+  };
 }
 
-export interface PeriodStats {
-  cycle_phase: string | null;
-  current_flow_amount: string | null;
-  last_recorded_at: string | null;
+export interface SleepStats {
+  avg_sleep_duration_7d: number | null;
+  avg_sleep_duration_30d: number | null;
+  previous_avg_sleep_duration_30d: number | null;
+  sleep_trend: number | null;
+  avg_quality_7d: number | null;
+  avg_quality_30d: number | null;
+  bar_chart_data: {
+    last_7_days: ChartPoint[];
+    last_30_days: ChartPoint[];
+  };
+}
+
+export interface PeriodCycleStats {
+  last_cycle_start: string | null;
+  last_cycle_end: string | null;
+  avg_cycle_length_days: number | null;
+  predicted_next_start_start: string | null;
+  predicted_next_start_end: string | null;
 }
 
 export interface HealthStats {
-  user_id: number;
-  current_weight_lbs: number | null;
-  current_height_ft: number | null;
-  bmi: number | null;
-  weight_trend: string | null;
-  height_trend: string | null;
-  last_bi_recorded_at: string | null;
+  basic: BasicStats;
   diet: DietStats;
-  sleep: SleepStats;
   exercise: ExerciseStats;
-  period: PeriodStats;
+  sleep: SleepStats;
+  period_cycle: PeriodCycleStats;
+}
+
+export interface IndicatorAnalysisPeriods {
+  "7d": string | null;
+  "30d": string | null;
+}
+
+export interface DashboardAnalysis {
+  basic: IndicatorAnalysisPeriods;
+  diet: IndicatorAnalysisPeriods;
+  exercise: IndicatorAnalysisPeriods;
+  sleep: IndicatorAnalysisPeriods;
+}
+
+export interface OverallAnalysisSummary {
+  summary: string;
+  created_at: string;
+}
+
+export interface DashboardResponse {
+  stats: HealthStats;
+  analysis: DashboardAnalysis;
+  overall_analysis: OverallAnalysisSummary | null;
 }
 
 export interface Alert {

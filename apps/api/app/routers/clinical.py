@@ -1,16 +1,17 @@
 """Clinical history and visit report router."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models.clinical import ClinicalHistory, ClinicVisitReport
+from app.models.clinical import ClinicVisitReport
+from app.models.medical import ClinicalHistoryEntry
 from app.schemas.clinical import (
-    ClinicVisitReportCreate,
-    ClinicVisitReportRead,
     ClinicalHistoryCreate,
     ClinicalHistoryRead,
+    ClinicVisitReportCreate,
+    ClinicVisitReportRead,
 )
 
 router = APIRouter(prefix="/clinical", tags=["clinical"])
@@ -18,27 +19,26 @@ router = APIRouter(prefix="/clinical", tags=["clinical"])
 _DEFAULT_USER_ID = 1
 
 
-@router.get("/history", response_model=ClinicalHistoryRead | None)
-def get_clinical_history(db: Session = Depends(get_db)) -> ClinicalHistory | None:
+@router.get("/history", response_model=list[ClinicalHistoryRead])
+def get_clinical_history(db: Session = Depends(get_db)) -> list[ClinicalHistoryEntry]:
     return db.scalars(
-        select(ClinicalHistory).where(ClinicalHistory.user_id == _DEFAULT_USER_ID)
-    ).first()
+        select(ClinicalHistoryEntry)
+        .where(ClinicalHistoryEntry.user_id == _DEFAULT_USER_ID)
+        .order_by(
+            ClinicalHistoryEntry.diagnosis_date.desc(),
+            ClinicalHistoryEntry.start_date.desc(),
+            ClinicalHistoryEntry.id.desc(),
+        )
+    ).all()
 
 
-@router.put("/history", response_model=ClinicalHistoryRead)
-def upsert_clinical_history(
+@router.post("/history", response_model=ClinicalHistoryRead, status_code=201)
+def add_clinical_history(
     payload: ClinicalHistoryCreate,
     db: Session = Depends(get_db),
-) -> ClinicalHistory:
-    record = db.scalars(
-        select(ClinicalHistory).where(ClinicalHistory.user_id == _DEFAULT_USER_ID)
-    ).first()
-    if record is None:
-        record = ClinicalHistory(user_id=_DEFAULT_USER_ID, **payload.model_dump())
-        db.add(record)
-    else:
-        for field, value in payload.model_dump().items():
-            setattr(record, field, value)
+) -> ClinicalHistoryEntry:
+    record = ClinicalHistoryEntry(user_id=_DEFAULT_USER_ID, **payload.model_dump())
+    db.add(record)
     db.commit()
     db.refresh(record)
     return record
@@ -61,7 +61,7 @@ def list_visit_reports(
     limit: int = 20,
     db: Session = Depends(get_db),
 ) -> list[ClinicVisitReport]:
-    return db.scalars(  # type: ignore[return-value]
+    return db.scalars(
         select(ClinicVisitReport)
         .where(ClinicVisitReport.user_id == _DEFAULT_USER_ID)
         .order_by(ClinicVisitReport.visit_date.desc())

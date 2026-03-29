@@ -7,7 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db import Base
 
 
-class AlertType(str, enum.Enum):
+class AlertType(enum.StrEnum):
     abnormal = "abnormal"  # metric out of healthy range
     stale = "stale"  # metric not updated in too long
 

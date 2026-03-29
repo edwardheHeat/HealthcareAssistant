@@ -7,7 +7,7 @@ import type {
   ExerciseRecord,
   PeriodRecord,
 } from "@/types/health";
-import type { HealthStats, Alert } from "@/types/stats";
+import type { DashboardResponse, Alert } from "@/types/stats";
 import type { ChatSession, ChatMessage, ChatResponse } from "@/types/chat";
 
 // ---- User ---------------------------------------------------------------- //
@@ -63,7 +63,7 @@ export const postPeriod = (data: { has_flow: boolean; flow_amount?: string | nul
   });
 
 // ---- Stats --------------------------------------------------------------- //
-export const getStats = () => request<HealthStats>("/stats");
+export const getStats = () => request<DashboardResponse>("/stats");
 
 // ---- Alerts -------------------------------------------------------------- //
 export const getAlerts = (unreadOnly = false) =>

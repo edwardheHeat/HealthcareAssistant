@@ -1,8 +1,9 @@
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAI
 
 from app.config import settings
 
 _client: AsyncOpenAI | None = None
+_sync_client: OpenAI | None = None
 
 
 def get_llm_client() -> AsyncOpenAI:
@@ -20,6 +21,7 @@ def get_llm_client() -> AsyncOpenAI:
     return _client
 
 
+
 async def call_llm(system: str, user: str) -> str:
     """Single-turn LLM call shared across chat_service, alert_writer, etc.
 
@@ -34,3 +36,14 @@ async def call_llm(system: str, user: str) -> str:
         ],
     )
     return resp.choices[0].message.content or ""
+
+def get_sync_llm_client() -> OpenAI:
+    """Return a shared sync OpenAI client for background-style service work."""
+    global _sync_client
+    if _sync_client is None:
+        _sync_client = OpenAI(
+            base_url=settings.llm_base_url,
+            api_key=settings.llm_api_key,
+        )
+    return _sync_client
+

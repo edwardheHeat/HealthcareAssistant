@@ -1,4 +1,4 @@
-"""Chat service — handles conversation turns with full context injection."""
+"""Chat service with health context injection."""
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -7,13 +7,12 @@ from app.config import settings
 from app.llm.client import get_llm_client
 from app.llm.prompts import build_chat_system_prompt
 from app.models.chat import ChatMessage, ChatSession, MessageRole
-from app.models.clinical import ClinicalHistory
+from app.models.medical import ClinicalHistoryEntry
 from app.models.user import UserProfile
 from app.services.stats import build_user_stats_context
 
 
 async def get_or_create_session(db: Session, user_id: int) -> ChatSession:
-    """Return the most recent open session, or create a new one."""
     session = db.scalars(
         select(ChatSession)
         .where(ChatSession.user_id == user_id)
@@ -34,9 +33,6 @@ async def send_chat_message(
     user_id: int,
     user_text: str,
 ) -> ChatMessage:
-    """Process a user message and return the assistant reply as a ChatMessage."""
-
-    # Persist user message
     user_msg = ChatMessage(
         session_id=session_id,
         role=MessageRole.user,
@@ -46,26 +42,31 @@ async def send_chat_message(
     db.commit()
     db.refresh(user_msg)
 
-    # Build context
     user = db.get(UserProfile, user_id)
     stats = build_user_stats_context(db, user_id)
-    clinical = db.scalars(
-        select(ClinicalHistory).where(ClinicalHistory.user_id == user_id)
-    ).first()
-    system_prompt = build_chat_system_prompt(user, stats, clinical)  # type: ignore[arg-type]
+    clinical_entries = db.scalars(
+        select(ClinicalHistoryEntry)
+        .where(ClinicalHistoryEntry.user_id == user_id)
+        .order_by(
+            ClinicalHistoryEntry.diagnosis_date.desc(),
+            ClinicalHistoryEntry.id.desc(),
+        )
+    ).all()
+    system_prompt = build_chat_system_prompt(  # type: ignore[arg-type]
+        user,
+        stats,
+        clinical_entries,
+    )
 
-    # Load conversation history for this session
     history = db.scalars(
         select(ChatMessage)
         .where(ChatMessage.session_id == session_id)
         .order_by(ChatMessage.created_at)
     ).all()
-
     messages = [{"role": "system", "content": system_prompt}] + [
         {"role": msg.role.value, "content": msg.content} for msg in history
     ]
 
-    # Call LLM
     client = get_llm_client()
     response = await client.chat.completions.create(
         model=settings.llm_model,
@@ -73,7 +74,6 @@ async def send_chat_message(
     )
     reply_text = response.choices[0].message.content or ""
 
-    # Persist assistant reply
     assistant_msg = ChatMessage(
         session_id=session_id,
         role=MessageRole.assistant,
@@ -82,5 +82,4 @@ async def send_chat_message(
     db.add(assistant_msg)
     db.commit()
     db.refresh(assistant_msg)
-
     return assistant_msg

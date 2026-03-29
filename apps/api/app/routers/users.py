@@ -12,17 +12,20 @@ from app.schemas.user import UserProfileCreate, UserProfileRead
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-# MVP: single user, hardcoded id=1
 _DEFAULT_USER_ID = 1
 
 
 @router.post("", response_model=UserProfileRead, status_code=201)
-def create_user(payload: UserProfileCreate, db: Session = Depends(get_db)) -> UserProfile:
+def create_user(
+    payload: UserProfileCreate,
+    db: Session = Depends(get_db),
+) -> UserProfile:
     existing = db.scalars(
         select(UserProfile).where(UserProfile.account_id == payload.account_id)
     ).first()
     if existing:
         raise HTTPException(status_code=409, detail="Account ID already exists.")
+
     user = UserProfile(
         name=payload.name,
         account_id=payload.account_id,
