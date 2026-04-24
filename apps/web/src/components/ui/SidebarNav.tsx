@@ -8,6 +8,7 @@ import { useAlerts } from "@/hooks/useAlerts";
 
 const NAV_ITEMS = [
   { href: "/dashboard", icon: "DB", label: "Dashboard" },
+  { href: "/apple-health", icon: "❤️", label: "Apple Health" },
   { href: "/questionnaire", icon: "LG", label: "Log Health" },
   { href: "/chat", icon: "AI", label: "AI Chat" },
   { href: "/settings", icon: "US", label: "User Settings" },
@@ -71,6 +72,55 @@ export default function SidebarNav() {
             </span>
           )}
         </button>
+      </nav>
+
+      {/* Mobile bottom nav — visible only on small screens */}
+      <nav className="mobile-nav">
+        <div className="mobile-nav-inner">
+          {NAV_ITEMS.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={`mobile-nav-item ${pathname.startsWith(item.href) ? "active" : ""}`}
+            >
+              <span className="mobile-nav-icon">{item.icon}</span>
+              {item.label}
+            </Link>
+          ))}
+          <button
+            onClick={openPanel}
+            className={`mobile-nav-item ${unreadCount > 0 ? "active" : ""}`}
+            style={{ position: "relative" }}
+            title="Inbox"
+          >
+            <span className="mobile-nav-icon">
+              📬
+              {unreadCount > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: -4,
+                    right: -4,
+                    background: "var(--rose)",
+                    color: "#fff",
+                    borderRadius: 99,
+                    minWidth: 16,
+                    height: 16,
+                    fontSize: "0.6rem",
+                    fontWeight: 700,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "0 4px",
+                  }}
+                >
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </span>
+            Inbox
+          </button>
+        </div>
       </nav>
 
       {isOpen && (

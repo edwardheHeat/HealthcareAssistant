@@ -1,10 +1,15 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import SidebarNav from "@/components/ui/SidebarNav";
 
 export const metadata: Metadata = {
   title: "HealthcareAssistant",
   description: "Your personal AI-powered health tracker",
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({
@@ -14,12 +19,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>
-        <div className="app-shell">
-          <SidebarNav />
-          <main className="main-content">{children}</main>
-        </div>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

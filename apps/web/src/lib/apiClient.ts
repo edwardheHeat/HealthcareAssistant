@@ -127,3 +127,25 @@ export const sendMessage = (sessionId: number, content: string) =>
 
 export const getMessages = (sessionId: number) =>
   request<ChatMessage[]>(`/chat/sessions/${sessionId}/messages`);
+
+// ---- Apple Health -------------------------------------------------------- //
+export const syncAppleHealth = (data: { steps: number[]; sleep: number[] }) =>
+  request<{ id: number; synced_at: string; steps: number[]; sleep: number[] }>("/apple-health/sync", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const getLatestAppleHealthSync = () =>
+  request<Record<string, unknown>>("/apple-health/sync/latest");
+
+export const generateHealthInsight = (data: { steps: number[]; sleep: number[] }) =>
+  request<{ insight: string; summaries: Record<string, unknown> }>("/apple-health/insight", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const askHealthAI = (data: { question: string; steps: number[]; sleep: number[] }) =>
+  request<{ answer: string }>("/apple-health/ask-ai", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });

@@ -31,6 +31,10 @@ Sex: {sex}
 {stats_summary}
 
 ---
+## Apple Health Data (imported via HealthKit)
+{apple_health_summary}
+
+---
 ## Clinical History
 {clinical_summary}
 ---
@@ -123,16 +127,42 @@ def _format_clinical(entries: Sequence[ClinicalHistoryEntry]) -> str:
     return "\n".join(lines)
 
 
+def _format_apple_health(ah: dict | None) -> str:
+    if not ah:
+        return "No Apple Health data synced yet."
+    days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    steps_str = ", ".join(
+        f"{days[i]}: {s:,}" for i, s in enumerate(ah.get("steps", []))
+    )
+    sleep_str = ", ".join(
+        f"{days[i]}: {h}h" for i, h in enumerate(ah.get("sleep", []))
+    )
+    lines = [
+        f"- Last synced: {ah.get('synced_at', 'unknown')}",
+        f"- Steps (7d): {steps_str}",
+        f"- Total steps: {ah.get('total_steps_7d', 0):,} | Avg/day: {ah.get('avg_daily_steps', 0):,}",
+        f"- Sleep (7d): {sleep_str}",
+        f"- Avg sleep: {ah.get('avg_sleep_hrs', 0)} hrs/night",
+    ]
+    if ah.get("midweek_sleep_drop"):
+        lines.append("- Pattern: midweek sleep drop detected (Wed–Fri below average)")
+    if ah.get("high_activity_fluctuation"):
+        lines.append("- Pattern: high step-count fluctuation across the week")
+    return "\n".join(lines)
+
+
 def build_chat_system_prompt(
     user: UserProfile,
     stats: dict,
     clinical_entries: Sequence[ClinicalHistoryEntry],
+    apple_health: dict | None = None,
 ) -> str:
     return _SYSTEM_TEMPLATE.format(
         name=user.name,
         age=user.age,
         sex="Male" if user.sex == "M" else "Female",
         stats_summary=_format_stats(stats),
+        apple_health_summary=_format_apple_health(apple_health),
         clinical_summary=_format_clinical(clinical_entries),
     )
 

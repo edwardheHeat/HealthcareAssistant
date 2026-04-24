@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.analysis import IndicatorAnalysis, OverallAnalysis
+from app.models.apple_health import AppleHealthSync
 from app.models.daily_tracking import (
     DailyBasicMetrics,
     DailyDiet,
@@ -420,9 +421,35 @@ def get_latest_overall_analysis(user_id: int, db: Session) -> dict[str, Any] | N
     }
 
 
+def get_apple_health_summary(user_id: int, db: Session) -> dict[str, Any] | None:
+    record = db.scalars(
+        select(AppleHealthSync)
+        .where(AppleHealthSync.user_id == user_id)
+        .order_by(AppleHealthSync.synced_at.desc())
+        .limit(1)
+    ).first()
+    if record is None:
+        return None
+    steps = record.steps
+    sleep = record.sleep
+    avg_sleep = round(sum(sleep) / len(sleep), 2) if sleep else 0.0
+    midweek_avg = round(sum(sleep[i] for i in [2, 3, 4]) / 3, 2) if len(sleep) >= 5 else avg_sleep
+    return {
+        "synced_at": record.synced_at.isoformat(),
+        "steps": steps,
+        "sleep": sleep,
+        "total_steps_7d": sum(steps),
+        "avg_daily_steps": round(sum(steps) / len(steps)) if steps else 0,
+        "avg_sleep_hrs": avg_sleep,
+        "midweek_sleep_drop": (avg_sleep - midweek_avg) > 0.5,
+        "high_activity_fluctuation": (max(steps) - min(steps)) > 4000 if steps else False,
+    }
+
+
 def get_dashboard_stats(user_id: int, db: Session) -> dict[str, Any]:
     return {
         "stats": compute_dashboard_stat_blocks(user_id, db),
         "analysis": get_latest_indicator_analysis(user_id, db),
         "overall_analysis": get_latest_overall_analysis(user_id, db),
+        "apple_health": get_apple_health_summary(user_id, db),
     }

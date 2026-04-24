@@ -1,5 +1,6 @@
 # Re-export all models so that Base.metadata.create_all() picks up every table.
 from app.models.alerts import Alert, AlertType
+from app.models.apple_health import AppleHealthSync
 from app.models.analysis import IndicatorAnalysis, OverallAnalysis
 from app.models.chat import ChatMessage, ChatSession, MessageRole
 from app.models.clinical import ClinicalHistory, ClinicVisitReport
@@ -26,6 +27,7 @@ from app.models.user import UserProfile
 __all__ = [
     "Alert",
     "AlertType",
+    "AppleHealthSync",
     "BasicIndicatorRecord",
     "ChatMessage",
     "ChatSession",

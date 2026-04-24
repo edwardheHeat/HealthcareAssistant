@@ -306,6 +306,7 @@ export default function DashboardPage() {
   const stats = dashboard?.stats;
   const analysis = dashboard?.analysis;
   const overallAnalysis = dashboard?.overall_analysis;
+  const appleHealth = dashboard?.apple_health;
 
   const basic = stats?.basic;
   const diet = stats?.diet;
@@ -326,6 +327,51 @@ export default function DashboardPage() {
         <h1>Dashboard</h1>
         <p>Live health statistics computed from your recent daily logs.</p>
       </div>
+
+      {/* ── Apple Health Section ─────────────────────────── */}
+      {appleHealth ? (
+        <div className="card" style={{ marginBottom: 28, borderColor: "rgba(255,55,95,0.25)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <div className="card-title" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span>❤️</span> Apple Health — Last 7 Days
+            </div>
+            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+              Synced {new Date(appleHealth.synced_at).toLocaleDateString()}
+            </span>
+          </div>
+          <div className="stat-grid" style={{ marginBottom: 16 }}>
+            <StatCard title="Total Steps (7d)" value={appleHealth.total_steps_7d.toLocaleString()} icon="👟" />
+            <StatCard title="Avg Daily Steps" value={appleHealth.avg_daily_steps.toLocaleString()} icon="🚶" />
+            <StatCard title="Avg Sleep" value={appleHealth.avg_sleep_hrs} unit="hrs" icon="😴" />
+          </div>
+          {(appleHealth.midweek_sleep_drop || appleHealth.high_activity_fluctuation) && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {appleHealth.midweek_sleep_drop && (
+                <div style={{ fontSize: "0.84rem", color: "var(--amber)", background: "var(--amber-soft)", borderRadius: "var(--radius-sm)", padding: "6px 12px" }}>
+                  ⚠ Midweek sleep drop detected — Wed to Fri sleep below weekly average
+                </div>
+              )}
+              {appleHealth.high_activity_fluctuation && (
+                <div style={{ fontSize: "0.84rem", color: "var(--accent)", background: "var(--accent-soft)", borderRadius: "var(--radius-sm)", padding: "6px 12px" }}>
+                  ↕ High activity fluctuation — step count varies significantly across the week
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="card" style={{ marginBottom: 28, borderStyle: "dashed" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: "1.4rem" }}>❤️</span>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: "0.9rem" }}>Apple Health not synced</div>
+              <div style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
+                Go to <a href="/apple-health">Apple Health</a> to import your steps and sleep data.
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="card" style={{ marginBottom: 28 }}>
         <div className="card-title" style={{ marginBottom: 10 }}>

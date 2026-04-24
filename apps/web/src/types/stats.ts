@@ -94,10 +94,23 @@ export interface OverallAnalysisSummary {
   created_at: string;
 }
 
+export interface AppleHealthData {
+  id: number;
+  synced_at: string;
+  steps: number[];
+  sleep: number[];
+  total_steps_7d: number;
+  avg_daily_steps: number;
+  avg_sleep_hrs: number;
+  midweek_sleep_drop: boolean;
+  high_activity_fluctuation: boolean;
+}
+
 export interface DashboardResponse {
   stats: HealthStats;
   analysis: DashboardAnalysis;
   overall_analysis: OverallAnalysisSummary | null;
+  apple_health: AppleHealthData | null;
 }
 
 export interface Alert {
