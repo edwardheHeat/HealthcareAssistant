@@ -9,14 +9,20 @@
  */
 
 import { useRef, useState } from "react";
-import { askHealthAI, generateHealthInsight, syncAppleHealth, parseAppleHealthExport } from "@/lib/apiClient";
 
-// Mock data for demo
+import {
+  askHealthAI,
+  generateHealthInsight,
+  parseAppleHealthExport,
+  syncAppleHealth,
+} from "@/lib/apiClient";
+
 const MOCK_STEPS = [5200, 6100, 4800, 7000, 8200, 3000, 4500];
 const MOCK_SLEEP = [7.5, 6.8, 6.2, 5.9, 6.0, 7.8, 8.1];
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 type SyncStage = "idle" | "connecting" | "permission" | "importing" | "done";
+type ExportStage = "idle" | "parsing" | "done" | "error";
 
 interface SyncStageInfo {
   icon: string;
@@ -24,34 +30,43 @@ interface SyncStageInfo {
   sub: string;
 }
 
+interface ExportParseResult {
+  id: number;
+  parsed_at: string;
+  totals: Record<string, unknown>;
+  date_range: {
+    start: string;
+    end: string;
+  };
+}
+
 const STAGE_INFO: Record<SyncStage, SyncStageInfo> = {
   idle: { icon: "", text: "", sub: "" },
   connecting: {
-    icon: "📡",
+    icon: "AH",
     text: "Connecting to Apple Health...",
     sub: "Establishing secure HealthKit connection",
   },
   permission: {
-    icon: "🔐",
+    icon: "OK",
     text: "Requesting permission...",
     sub: "Asking for read access to steps and sleep data",
   },
   importing: {
-    icon: "⬇️",
+    icon: "IN",
     text: "Importing health data...",
     sub: "Fetching last 7 days of steps and sleep records",
   },
   done: {
-    icon: "✅",
+    icon: "DONE",
     text: "Sync complete",
     sub: "Your Apple Health data has been imported",
   },
 };
 
-type ExportStage = "idle" | "parsing" | "done" | "error";
-
 function SyncStatusCard({ stage }: { stage: SyncStage }) {
   const info = STAGE_INFO[stage];
+
   return (
     <div className="ah-status-card" style={{ marginBottom: 24 }}>
       <div className="ah-status-icon">{info.icon}</div>
@@ -59,9 +74,7 @@ function SyncStatusCard({ stage }: { stage: SyncStage }) {
         <div className="ah-status-text">{info.text}</div>
         <div className="ah-status-sub">{info.sub}</div>
       </div>
-      {stage !== "done" && (
-        <div className="spinner" style={{ marginTop: 8 }} />
-      )}
+      {stage !== "done" && <div className="spinner" style={{ marginTop: 8 }} />}
     </div>
   );
 }
@@ -78,12 +91,15 @@ function MiniBarChart({
   unit: string;
 }) {
   const max = Math.max(...values);
+
   return (
     <div className="ah-bar-chart">
-      {values.map((v, i) => {
-        const heightPct = max > 0 ? (v / max) * 100 : 0;
+      {values.map((value, index) => {
+        const heightPct = max > 0 ? (value / max) * 100 : 0;
+        const label = labels[index];
+
         return (
-          <div key={labels[i]} className="ah-bar-col">
+          <div key={label} className="ah-bar-col">
             <div
               style={{
                 fontSize: "0.68rem",
@@ -91,7 +107,7 @@ function MiniBarChart({
                 marginBottom: 2,
               }}
             >
-              {unit === "k" ? (v / 1000).toFixed(1) + "k" : v + unit}
+              {unit === "k" ? `${(value / 1000).toFixed(1)}k` : `${value}${unit}`}
             </div>
             <div
               className="ah-bar"
@@ -100,7 +116,7 @@ function MiniBarChart({
                 background: `linear-gradient(180deg, ${color}, rgba(255,255,255,0.1))`,
               }}
             />
-            <div className="ah-bar-label">{labels[i]}</div>
+            <div className="ah-bar-label">{label}</div>
           </div>
         );
       })}
@@ -131,7 +147,12 @@ function SummaryChip({
       }}
     >
       <div
-        style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}
+        style={{
+          fontSize: "0.72rem",
+          color: "var(--text-muted)",
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+        }}
       >
         {label}
       </div>
@@ -151,10 +172,9 @@ export default function AppleHealthPage() {
   const [askError, setAskError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Real export import state
   const [exportStage, setExportStage] = useState<ExportStage>("idle");
   const [exportError, setExportError] = useState<string | null>(null);
-  const [exportData, setExportData] = useState<Record<string, unknown> | null>(null);
+  const [exportData, setExportData] = useState<ExportParseResult | null>(null);
 
   async function handleSync() {
     setSyncStage("connecting");
@@ -163,35 +183,42 @@ export default function AppleHealthPage() {
     await delay(1400);
     setSyncStage("importing");
     await delay(1600);
+
     try {
       await syncAppleHealth({ steps: MOCK_STEPS, sleep: MOCK_SLEEP });
     } catch {
-      // Non-fatal
+      // The demo can still show mock data if persistence fails.
     }
+
     setSyncStage("done");
     await delay(800);
     setSynced(true);
-    fetchInsight();
+    void fetchInsight();
   }
 
   async function handleParseExport() {
     setExportStage("parsing");
     setExportError(null);
+
     try {
       const result = await parseAppleHealthExport();
       setExportData(result);
       setExportStage("done");
-    } catch (e: unknown) {
-      setExportError(e instanceof Error ? e.message : "Failed to parse export");
+    } catch (error: unknown) {
+      setExportError(error instanceof Error ? error.message : "Failed to parse export");
       setExportStage("error");
     }
   }
 
   async function fetchInsight() {
     setInsightLoading(true);
+
     try {
-      const res = await generateHealthInsight({ steps: MOCK_STEPS, sleep: MOCK_SLEEP });
-      setInsight(res.insight);
+      const response = await generateHealthInsight({
+        steps: MOCK_STEPS,
+        sleep: MOCK_SLEEP,
+      });
+      setInsight(response.insight);
     } catch {
       setInsight(null);
     } finally {
@@ -200,78 +227,138 @@ export default function AppleHealthPage() {
   }
 
   async function handleAsk() {
-    if (!question.trim()) return;
+    if (!question.trim()) {
+      return;
+    }
+
     setAskLoading(true);
     setAnswer(null);
     setAskError(null);
+
     try {
-      const res = await askHealthAI({
+      const response = await askHealthAI({
         question: question.trim(),
         steps: MOCK_STEPS,
         sleep: MOCK_SLEEP,
       });
-      setAnswer(res.answer);
-    } catch (e: unknown) {
-      setAskError(e instanceof Error ? e.message : "Failed to get answer");
+      setAnswer(response.answer);
+    } catch (error: unknown) {
+      setAskError(error instanceof Error ? error.message : "Failed to get answer");
     } finally {
       setAskLoading(false);
     }
   }
 
-  const totalSteps = MOCK_STEPS.reduce((a, b) => a + b, 0);
-  const avgSleep = (MOCK_SLEEP.reduce((a, b) => a + b, 0) / MOCK_SLEEP.length).toFixed(1);
+  const totalSteps = MOCK_STEPS.reduce((sum, value) => sum + value, 0);
+  const avgSleep = (
+    MOCK_SLEEP.reduce((sum, value) => sum + value, 0) / MOCK_SLEEP.length
+  ).toFixed(1);
   const avgSteps = Math.round(totalSteps / MOCK_STEPS.length);
 
   return (
     <div>
       <div className="page-header">
         <h1>Apple Health</h1>
-        <p>Import your health data and get AI-powered insights from your activity and sleep patterns.</p>
+        <p>
+          Import your health data and get AI-powered insights from your activity
+          and sleep patterns.
+        </p>
       </div>
 
-      {/* ===== REAL EXPORT IMPORT SECTION ===== */}
-      <div className="card" style={{ marginBottom: 24, borderLeft: "4px solid var(--accent)" }}>
-        <div className="card-title" style={{ marginBottom: 12, color: "var(--accent)" }}>
-          📊 Import Real Apple Health Data
+      <div
+        className="card"
+        style={{ marginBottom: 24, borderLeft: "4px solid var(--accent)" }}
+      >
+        <div
+          className="card-title"
+          style={{ marginBottom: 12, color: "var(--accent)" }}
+        >
+          Import Real Apple Health Data
         </div>
-        <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginBottom: 12 }}>
-          Parse your real Apple Health export.zip file (30 days of steps, workouts, and more)
+        <p
+          style={{
+            color: "var(--text-secondary)",
+            fontSize: "0.9rem",
+            marginBottom: 12,
+          }}
+        >
+          Parse your real Apple Health export.zip file (30 days of steps,
+          workouts, and more).
         </p>
+
         {exportStage === "idle" && (
           <button
             className="ah-sync-btn"
             onClick={handleParseExport}
             style={{ marginBottom: 8 }}
           >
-            <span style={{ fontSize: "1.1rem" }}>📁</span>
+            <span style={{ fontSize: "1.1rem" }}>ZIP</span>
             Parse export.zip from Project Root
           </button>
         )}
+
         {exportStage === "parsing" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "12px",
+            }}
+          >
             <div className="spinner" />
             <span style={{ color: "var(--text-muted)" }}>
-              Parsing 500k+ health records (this may take 30-60 seconds)...
+              Parsing health records. This may take 30-60 seconds.
             </span>
           </div>
         )}
+
         {exportStage === "done" && exportData && (
-          <div style={{ backgroundColor: "rgba(52, 211, 153, 0.08)", padding: 12, borderRadius: 8 }}>
-            <div style={{ color: "var(--green)", fontWeight: 600, marginBottom: 8 }}>✅ Export parsed successfully!</div>
-            <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
-              <div>📅 Date range: {exportData.date_range?.start ?? "?"} to {exportData.date_range?.end ?? "?"}</div>
-              <div>📈 Totals: {JSON.stringify(exportData.totals).substring(0, 120)}...</div>
+          <div
+            style={{
+              backgroundColor: "rgba(52, 211, 153, 0.08)",
+              padding: 12,
+              borderRadius: 8,
+            }}
+          >
+            <div
+              style={{
+                color: "var(--green)",
+                fontWeight: 600,
+                marginBottom: 8,
+              }}
+            >
+              Export parsed successfully.
+            </div>
+            <div
+              style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}
+            >
+              <div>
+                Date range: {exportData.date_range.start} to{" "}
+                {exportData.date_range.end}
+              </div>
+              <div>
+                Totals: {JSON.stringify(exportData.totals).substring(0, 120)}...
+              </div>
             </div>
           </div>
         )}
+
         {exportStage === "error" && (
-          <div style={{ color: "var(--rose)", fontSize: "0.9rem", padding: "10px", backgroundColor: "rgba(244, 63, 94, 0.1)", borderRadius: 8 }}>
-            ❌ {exportError}
+          <div
+            style={{
+              color: "var(--rose)",
+              fontSize: "0.9rem",
+              padding: "10px",
+              backgroundColor: "rgba(244, 63, 94, 0.1)",
+              borderRadius: 8,
+            }}
+          >
+            Error: {exportError}
           </div>
         )}
       </div>
 
-      {/* ===== MOCK SYNC SECTION ===== */}
       {!synced && syncStage === "idle" && (
         <div className="card" style={{ marginBottom: 24 }}>
           <div
@@ -292,21 +379,41 @@ export default function AppleHealthPage() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: "2.4rem",
+                fontSize: "1.5rem",
+                fontWeight: 700,
+                color: "var(--rose)",
               }}
             >
-              ❤️
+              AH
             </div>
             <div style={{ textAlign: "center" }}>
-              <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: 6 }}>
+              <div
+                style={{
+                  fontSize: "1.1rem",
+                  fontWeight: 700,
+                  color: "var(--text-primary)",
+                  marginBottom: 6,
+                }}
+              >
                 Connect Apple Health (Mock Demo)
               </div>
-              <div style={{ fontSize: "0.88rem", color: "var(--text-muted)", maxWidth: 340 }}>
-                Simulate importing 7 days of steps and sleep data for demonstration.
+              <div
+                style={{
+                  fontSize: "0.88rem",
+                  color: "var(--text-muted)",
+                  maxWidth: 340,
+                }}
+              >
+                Simulate importing 7 days of steps and sleep data for
+                demonstration.
               </div>
             </div>
-            <button className="ah-sync-btn" style={{ maxWidth: 320 }} onClick={handleSync}>
-              <span style={{ fontSize: "1.2rem" }}>❤️</span>
+            <button
+              className="ah-sync-btn"
+              style={{ maxWidth: 320 }}
+              onClick={handleSync}
+            >
+              <span style={{ fontSize: "1.2rem" }}>AH</span>
               Sync Mock Data
             </button>
             <div
@@ -318,20 +425,24 @@ export default function AppleHealthPage() {
                 lineHeight: 1.5,
               }}
             >
-              This simulates the Apple Health import flow. Use "Parse export.zip from Project Root" above for real data.
+              This simulates the Apple Health import flow. Use the real export
+              parser above for real data.
             </div>
           </div>
         </div>
       )}
 
-      {!synced && syncStage !== "idle" && (
-        <SyncStatusCard stage={syncStage} />
-      )}
+      {!synced && syncStage !== "idle" && <SyncStatusCard stage={syncStage} />}
 
       {synced && (
         <>
-          {/* Re-sync button */}
-          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 20 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              marginBottom: 20,
+            }}
+          >
             <button
               className="ah-sync-btn ah-sync-btn-done"
               style={{ width: "auto", padding: "10px 20px", fontSize: "0.88rem" }}
@@ -342,12 +453,11 @@ export default function AppleHealthPage() {
                 setAnswer(null);
               }}
             >
-              <span>✅</span>
-              Synced · Re-import
+              <span>OK</span>
+              Synced - Re-import
             </button>
           </div>
 
-          {/* Summary chips */}
           <div
             style={{
               display: "flex",
@@ -373,10 +483,9 @@ export default function AppleHealthPage() {
             />
           </div>
 
-          {/* Steps chart */}
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-title" style={{ marginBottom: 16 }}>
-              Daily Steps — Last 7 Days
+              Daily Steps - Last 7 Days
             </div>
             <MiniBarChart
               values={MOCK_STEPS}
@@ -386,10 +495,9 @@ export default function AppleHealthPage() {
             />
           </div>
 
-          {/* Sleep chart */}
           <div className="card" style={{ marginBottom: 24 }}>
             <div className="card-title" style={{ marginBottom: 16 }}>
-              Sleep Duration — Last 7 Days
+              Sleep Duration - Last 7 Days
             </div>
             <MiniBarChart
               values={MOCK_SLEEP}
@@ -399,7 +507,6 @@ export default function AppleHealthPage() {
             />
           </div>
 
-          {/* AI Insight */}
           <div className="card" style={{ marginBottom: 24 }}>
             <div className="card-title" style={{ marginBottom: 12 }}>
               Weekly AI Insight
@@ -423,12 +530,11 @@ export default function AppleHealthPage() {
               </div>
             ) : (
               <div style={{ color: "var(--text-muted)" }}>
-                Could not generate insight — check backend connection.
+                Could not generate insight - check backend connection.
               </div>
             )}
           </div>
 
-          {/* Ask AI */}
           <div className="card">
             <div className="card-title" style={{ marginBottom: 12 }}>
               Ask AI About Your Data
@@ -440,9 +546,11 @@ export default function AppleHealthPage() {
                 type="text"
                 placeholder="e.g. Why do I feel tired mid-week?"
                 value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !askLoading) handleAsk();
+                onChange={(event) => setQuestion(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !askLoading) {
+                    void handleAsk();
+                  }
                 }}
                 disabled={askLoading}
               />
@@ -451,7 +559,14 @@ export default function AppleHealthPage() {
                 onClick={handleAsk}
                 disabled={askLoading || !question.trim()}
               >
-                {askLoading ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : "Ask"}
+                {askLoading ? (
+                  <span
+                    className="spinner"
+                    style={{ width: 16, height: 16, borderWidth: 2 }}
+                  />
+                ) : (
+                  "Ask"
+                )}
               </button>
             </div>
             <div
@@ -504,5 +619,5 @@ export default function AppleHealthPage() {
 }
 
 function delay(ms: number): Promise<void> {
-  return new Promise((res) => setTimeout(res, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
