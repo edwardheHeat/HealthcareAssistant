@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
@@ -7,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 import app.models  # noqa: F401
 from app.db import Base
 from app.models.analysis import IndicatorAnalysis, OverallAnalysis
+from app.models.apple_health import AppleHealthExport
 from app.models.daily_tracking import (
     DailyBasicMetrics,
     DailyDiet,
@@ -255,7 +257,12 @@ def test_get_dashboard_stats_queries_database() -> None:
     assert overall_analysis is not None
     assert overall_analysis["summary"] == "Latest overall summary"
 
-    assert set(stats.keys()) == {"stats", "analysis", "overall_analysis"}
+    assert set(stats.keys()) == {
+        "stats",
+        "analysis",
+        "overall_analysis",
+        "apple_health",
+    }
     assert set(stats["stats"].keys()) == {
         "basic",
         "diet",
@@ -271,3 +278,73 @@ def test_get_dashboard_stats_queries_database() -> None:
     assert stats["analysis"]["exercise"]["7d"] is None
     assert stats["overall_analysis"] is not None
     assert stats["overall_analysis"]["summary"] == "Latest overall summary"
+
+
+def test_get_dashboard_stats_includes_apple_health_export() -> None:
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+    )
+    TestingSession = sessionmaker(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    today = datetime.now(tz=UTC).date()
+    daily_steps = {
+        (today - timedelta(days=6 - i)).isoformat(): 5000 + (i * 500) for i in range(7)
+    }
+    daily_active_energy = {
+        (today - timedelta(days=6 - i)).isoformat(): 200 + (i * 10) for i in range(7)
+    }
+    daily_sleep = {
+        (today - timedelta(days=6 - i)).isoformat(): 7.0 + (i * 0.1) for i in range(7)
+    }
+    daily_workouts = {
+        today.isoformat(): [
+            {"type": "Running", "duration_min": 30, "energy_kcal": 300},
+            {"type": "Walking", "duration_min": 20, "energy_kcal": 80},
+        ]
+    }
+    totals = {
+        "total_steps_30d": sum(daily_steps.values()),
+        "total_steps_7d": sum(daily_steps.values()),
+        "avg_daily_steps": round(sum(daily_steps.values()) / 7),
+        "avg_daily_steps_7d": round(sum(daily_steps.values()) / 7),
+        "avg_workout_min_7d": 7.1,
+        "avg_workout_min_30d": 1.7,
+    }
+
+    with TestingSession() as db:
+        user = UserProfile(
+            name="Apple User",
+            account_id="apple-user",
+            password_hash="hashed",
+            age=35,
+            sex="F",
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+        db.add(
+            AppleHealthExport(
+                user_id=user.id,
+                daily_steps_json=json.dumps(daily_steps),
+                daily_workouts_json=json.dumps(daily_workouts),
+                daily_active_energy_json=json.dumps(daily_active_energy),
+                daily_sleep_json=json.dumps(daily_sleep),
+                totals_json=json.dumps(totals),
+            )
+        )
+        db.commit()
+
+        stats = get_dashboard_stats(user.id, db)
+
+    exercise = stats["stats"]["exercise"]
+    sleep = stats["stats"]["sleep"]
+
+    assert exercise["total_steps_7d"] == totals["total_steps_7d"]
+    assert exercise["avg_duration_7d"] == 7.1
+    assert exercise["intensity_distribution"] == {"low": 1, "medium": 0, "high": 1}
+    assert len(exercise["steps_bar_chart_7d"]) == 7
+    assert sleep["avg_sleep_duration_7d"] == 7.3
+    assert stats["apple_health"]["source"] == "export"

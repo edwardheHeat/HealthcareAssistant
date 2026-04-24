@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.analysis import IndicatorAnalysis, OverallAnalysis
-from app.models.apple_health import AppleHealthSync
+from app.models.apple_health import AppleHealthExport, AppleHealthSync
 from app.models.daily_tracking import (
     DailyBasicMetrics,
     DailyDiet,
@@ -334,6 +334,95 @@ def compute_period_cycle(user_id: int, db: Session) -> dict[str, Any]:
     return _compute_period_cycle_from_logs(cycles)
 
 
+def _ah_to_chart_points(values: list[float | int]) -> list[dict[str, Any]]:
+    """Convert a 7-element Apple Health array to last-7-days chart points."""
+    today = _TODAY()
+    return [
+        {"date": (today - timedelta(days=6 - i)).isoformat(), "value": v}
+        for i, v in enumerate(values)
+    ]
+
+
+def _daily_dict_to_chart_points(
+    values_by_date: dict[str, float | int],
+    *,
+    days: int,
+) -> list[dict[str, Any]]:
+    today = _TODAY()
+    return [
+        {
+            "date": (today - timedelta(days=days - 1 - i)).isoformat(),
+            "value": values_by_date.get(
+                (today - timedelta(days=days - 1 - i)).isoformat()
+            ),
+        }
+        for i in range(days)
+    ]
+
+
+def _steps_and_energy_from_export(export: AppleHealthExport) -> dict[str, Any]:
+    totals = export.totals
+    daily_steps = export.daily_steps
+    daily_active_energy = export.daily_active_energy
+    today = _TODAY()
+    start_7d = (today - timedelta(days=6)).isoformat()
+
+    return {
+        "avg_daily_steps": totals.get("avg_daily_steps"),
+        "avg_daily_steps_7d": totals.get("avg_daily_steps_7d"),
+        "total_steps_7d": totals.get("total_steps_7d"),
+        "total_steps_30d": totals.get("total_steps_30d"),
+        "steps_bar_chart_7d": _daily_dict_to_chart_points(daily_steps, days=7),
+        "steps_bar_chart_30d": _daily_dict_to_chart_points(daily_steps, days=30),
+        "active_energy_7d": round(
+            sum(v for k, v in daily_active_energy.items() if k >= start_7d),
+            1,
+        ),
+    }
+
+
+def _workout_intensity(workout_type: str) -> str:
+    if workout_type in {
+        "Running",
+        "HIIT",
+        "CrossTraining",
+        "JumpRope",
+        "StepTraining",
+        "Cycling",
+        "Swimming",
+    }:
+        return "high"
+    if workout_type in {"Walking", "Stairs"}:
+        return "low"
+    return "medium"
+
+
+def _exercise_stats_from_export(export: AppleHealthExport) -> dict[str, Any]:
+    daily_workouts = export.daily_workouts
+    totals = export.totals
+    duration_by_date = {
+        day: round(
+            sum(float(workout.get("duration_min", 0)) for workout in workouts), 1
+        )
+        for day, workouts in daily_workouts.items()
+    }
+    intensity_distribution = {"low": 0, "medium": 0, "high": 0}
+    for workouts in daily_workouts.values():
+        for workout in workouts:
+            intensity = _workout_intensity(str(workout.get("type", "")))
+            intensity_distribution[intensity] += 1
+
+    return {
+        "avg_duration_7d": totals.get("avg_workout_min_7d"),
+        "avg_duration_30d": totals.get("avg_workout_min_30d"),
+        "intensity_distribution": intensity_distribution,
+        "bar_chart_data": {
+            "last_7_days": _daily_dict_to_chart_points(duration_by_date, days=7),
+            "last_30_days": _daily_dict_to_chart_points(duration_by_date, days=30),
+        },
+    }
+
+
 def compute_dashboard_stat_blocks(user_id: int, db: Session) -> dict[str, Any]:
     daily_start_date = _TODAY() - timedelta(days=59)
 
@@ -370,11 +459,85 @@ def compute_dashboard_stat_blocks(user_id: int, db: Session) -> dict[str, Any]:
         .order_by(DailySleep.date.asc())
     ).all()
 
+    sleep_stats = compute_sleep_stats(sleep_logs)
+    exercise_stats = compute_exercise_stats(exercise_logs)
+
+    # Check for AppleHealthExport first (new, richer format with 30-day data)
+    ah_export = db.scalars(
+        select(AppleHealthExport)
+        .where(AppleHealthExport.user_id == user_id)
+        .order_by(AppleHealthExport.parsed_at.desc())
+        .limit(1)
+    ).first()
+
+    if ah_export is not None:
+        # Always merge steps and energy data
+        steps_data = _steps_and_energy_from_export(ah_export)
+        exercise_stats.update(steps_data)
+
+        # Merge exercise duration from workouts when no manual data exists
+        if exercise_stats["avg_duration_7d"] is None:
+            workout_stats = _exercise_stats_from_export(ah_export)
+            exercise_stats["avg_duration_7d"] = workout_stats["avg_duration_7d"]
+            exercise_stats["avg_duration_30d"] = workout_stats["avg_duration_30d"]
+            exercise_stats["intensity_distribution"] = workout_stats[
+                "intensity_distribution"
+            ]
+            exercise_stats["bar_chart_data"] = workout_stats["bar_chart_data"]
+
+        # Merge sleep from export when no manual data exists
+        if sleep_stats["avg_sleep_duration_7d"] is None:
+            ah_sleep = ah_export.daily_sleep
+            if ah_sleep:
+                today = _TODAY()
+                start_7d = (today - timedelta(days=6)).isoformat()
+                sleep_7d = [v for k, v in ah_sleep.items() if k >= start_7d]
+                if sleep_7d:
+                    sleep_stats["avg_sleep_duration_7d"] = round(
+                        sum(sleep_7d) / len(sleep_7d), 2
+                    )
+                    sleep_stats["bar_chart_data"]["last_7_days"] = [
+                        {
+                            "date": (today - timedelta(days=6 - i)).isoformat(),
+                            "value": ah_sleep.get(
+                                (today - timedelta(days=6 - i)).isoformat()
+                            ),
+                        }
+                        for i in range(7)
+                    ]
+    else:
+        # Fallback: old-style AppleHealthSync (mock 7-element arrays)
+        ah = db.scalars(
+            select(AppleHealthSync)
+            .where(AppleHealthSync.user_id == user_id)
+            .order_by(AppleHealthSync.synced_at.desc())
+            .limit(1)
+        ).first()
+
+        if ah is not None:
+            ah_sleep = ah.sleep
+            ah_steps = ah.steps
+
+            # Fill sleep stats with AH data when no manual logs exist
+            if sleep_stats["avg_sleep_duration_7d"] is None and ah_sleep:
+                sleep_stats["avg_sleep_duration_7d"] = round(
+                    sum(ah_sleep) / len(ah_sleep), 2
+                )
+                sleep_stats["bar_chart_data"]["last_7_days"] = _ah_to_chart_points(
+                    ah_sleep
+                )
+
+            # Inject steps into exercise stats
+            if ah_steps:
+                exercise_stats["avg_daily_steps"] = round(sum(ah_steps) / len(ah_steps))
+                exercise_stats["total_steps_7d"] = sum(ah_steps)
+                exercise_stats["steps_bar_chart_7d"] = _ah_to_chart_points(ah_steps)
+
     return {
         "basic": compute_basic_stats(basic_logs),
         "diet": compute_diet_stats(diet_logs),
-        "exercise": compute_exercise_stats(exercise_logs),
-        "sleep": compute_sleep_stats(sleep_logs),
+        "exercise": exercise_stats,
+        "sleep": sleep_stats,
         "period_cycle": compute_period_cycle(user_id, db),
     }
 
@@ -422,6 +585,27 @@ def get_latest_overall_analysis(user_id: int, db: Session) -> dict[str, Any] | N
 
 
 def get_apple_health_summary(user_id: int, db: Session) -> dict[str, Any] | None:
+    # Prefer the richer export format
+    export = db.scalars(
+        select(AppleHealthExport)
+        .where(AppleHealthExport.user_id == user_id)
+        .order_by(AppleHealthExport.parsed_at.desc())
+        .limit(1)
+    ).first()
+
+    if export is not None:
+        totals = export.totals
+        return {
+            "source": "export",
+            "synced_at": export.parsed_at.isoformat(),
+            "totals": totals,
+            "daily_steps": export.daily_steps,
+            "daily_workouts": export.daily_workouts,
+            "daily_sleep": export.daily_sleep,
+            "daily_active_energy": export.daily_active_energy,
+        }
+
+    # Fallback to old sync format
     record = db.scalars(
         select(AppleHealthSync)
         .where(AppleHealthSync.user_id == user_id)
@@ -433,8 +617,11 @@ def get_apple_health_summary(user_id: int, db: Session) -> dict[str, Any] | None
     steps = record.steps
     sleep = record.sleep
     avg_sleep = round(sum(sleep) / len(sleep), 2) if sleep else 0.0
-    midweek_avg = round(sum(sleep[i] for i in [2, 3, 4]) / 3, 2) if len(sleep) >= 5 else avg_sleep
+    midweek_avg = (
+        round(sum(sleep[i] for i in [2, 3, 4]) / 3, 2) if len(sleep) >= 5 else avg_sleep
+    )
     return {
+        "source": "mock",
         "synced_at": record.synced_at.isoformat(),
         "steps": steps,
         "sleep": sleep,
@@ -442,7 +629,9 @@ def get_apple_health_summary(user_id: int, db: Session) -> dict[str, Any] | None
         "avg_daily_steps": round(sum(steps) / len(steps)) if steps else 0,
         "avg_sleep_hrs": avg_sleep,
         "midweek_sleep_drop": (avg_sleep - midweek_avg) > 0.5,
-        "high_activity_fluctuation": (max(steps) - min(steps)) > 4000 if steps else False,
+        "high_activity_fluctuation": (max(steps) - min(steps)) > 4000
+        if steps
+        else False,
     }
 
 

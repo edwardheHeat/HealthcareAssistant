@@ -3,33 +3,20 @@
 /**
  * Apple Health Import Page
  *
- * In production, this system integrates with Apple Health via HealthKit through a
- * native iOS application. Due to browser privacy restrictions, this demo simulates
- * the import process using synchronized mock data.
- *
- * Simulated flow: Apple Health → (simulated import) → Web App → Backend → AI → UI
+ * Supports two import modes:
+ * 1. Mock sync: Simulates 7 days of Apple Health data for demo
+ * 2. Real export: Parses the actual Apple Health export.xml for 30 days of real data
  */
 
 import { useRef, useState } from "react";
-import { askHealthAI, generateHealthInsight, syncAppleHealth } from "@/lib/apiClient";
+import { askHealthAI, generateHealthInsight, syncAppleHealth, parseAppleHealthExport } from "@/lib/apiClient";
 
-// ---------------------------------------------------------------------------
-// Mock data — represents 7 days (Mon–Sun) of Apple Health export
-// In production this would come from HealthKit via a native iOS bridge
-// ---------------------------------------------------------------------------
+// Mock data for demo
 const MOCK_STEPS = [5200, 6100, 4800, 7000, 8200, 3000, 4500];
 const MOCK_SLEEP = [7.5, 6.8, 6.2, 5.9, 6.0, 7.8, 8.1];
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-type SyncStage =
-  | "idle"
-  | "connecting"
-  | "permission"
-  | "importing"
-  | "done";
+type SyncStage = "idle" | "connecting" | "permission" | "importing" | "done";
 
 interface SyncStageInfo {
   icon: string;
@@ -61,9 +48,7 @@ const STAGE_INFO: Record<SyncStage, SyncStageInfo> = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
+type ExportStage = "idle" | "parsing" | "done" | "error";
 
 function SyncStatusCard({ stage }: { stage: SyncStage }) {
   const info = STAGE_INFO[stage];
@@ -155,10 +140,6 @@ function SummaryChip({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main page
-// ---------------------------------------------------------------------------
-
 export default function AppleHealthPage() {
   const [syncStage, setSyncStage] = useState<SyncStage>("idle");
   const [synced, setSynced] = useState(false);
@@ -170,7 +151,11 @@ export default function AppleHealthPage() {
   const [askError, setAskError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Run the simulated import sequence, then persist to backend
+  // Real export import state
+  const [exportStage, setExportStage] = useState<ExportStage>("idle");
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportData, setExportData] = useState<Record<string, unknown> | null>(null);
+
   async function handleSync() {
     setSyncStage("connecting");
     await delay(1200);
@@ -178,16 +163,28 @@ export default function AppleHealthPage() {
     await delay(1400);
     setSyncStage("importing");
     await delay(1600);
-    // Save to backend so dashboard + chat can use the data
     try {
       await syncAppleHealth({ steps: MOCK_STEPS, sleep: MOCK_SLEEP });
     } catch {
-      // Non-fatal — page still shows data even if persist fails
+      // Non-fatal
     }
     setSyncStage("done");
     await delay(800);
     setSynced(true);
     fetchInsight();
+  }
+
+  async function handleParseExport() {
+    setExportStage("parsing");
+    setExportError(null);
+    try {
+      const result = await parseAppleHealthExport();
+      setExportData(result);
+      setExportStage("done");
+    } catch (e: unknown) {
+      setExportError(e instanceof Error ? e.message : "Failed to parse export");
+      setExportStage("error");
+    }
   }
 
   async function fetchInsight() {
@@ -232,7 +229,49 @@ export default function AppleHealthPage() {
         <p>Import your health data and get AI-powered insights from your activity and sleep patterns.</p>
       </div>
 
-      {/* ---- Pre-sync: show sync button ---- */}
+      {/* ===== REAL EXPORT IMPORT SECTION ===== */}
+      <div className="card" style={{ marginBottom: 24, borderLeft: "4px solid var(--accent)" }}>
+        <div className="card-title" style={{ marginBottom: 12, color: "var(--accent)" }}>
+          📊 Import Real Apple Health Data
+        </div>
+        <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem", marginBottom: 12 }}>
+          Parse your real Apple Health export.zip file (30 days of steps, workouts, and more)
+        </p>
+        {exportStage === "idle" && (
+          <button
+            className="ah-sync-btn"
+            onClick={handleParseExport}
+            style={{ marginBottom: 8 }}
+          >
+            <span style={{ fontSize: "1.1rem" }}>📁</span>
+            Parse export.zip from Project Root
+          </button>
+        )}
+        {exportStage === "parsing" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px" }}>
+            <div className="spinner" />
+            <span style={{ color: "var(--text-muted)" }}>
+              Parsing 500k+ health records (this may take 30-60 seconds)...
+            </span>
+          </div>
+        )}
+        {exportStage === "done" && exportData && (
+          <div style={{ backgroundColor: "rgba(52, 211, 153, 0.08)", padding: 12, borderRadius: 8 }}>
+            <div style={{ color: "var(--green)", fontWeight: 600, marginBottom: 8 }}>✅ Export parsed successfully!</div>
+            <div style={{ fontSize: "0.85rem", color: "var(--text-secondary)" }}>
+              <div>📅 Date range: {exportData.date_range?.start ?? "?"} to {exportData.date_range?.end ?? "?"}</div>
+              <div>📈 Totals: {JSON.stringify(exportData.totals).substring(0, 120)}...</div>
+            </div>
+          </div>
+        )}
+        {exportStage === "error" && (
+          <div style={{ color: "var(--rose)", fontSize: "0.9rem", padding: "10px", backgroundColor: "rgba(244, 63, 94, 0.1)", borderRadius: 8 }}>
+            ❌ {exportError}
+          </div>
+        )}
+      </div>
+
+      {/* ===== MOCK SYNC SECTION ===== */}
       {!synced && syncStage === "idle" && (
         <div className="card" style={{ marginBottom: 24 }}>
           <div
@@ -260,15 +299,15 @@ export default function AppleHealthPage() {
             </div>
             <div style={{ textAlign: "center" }}>
               <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: 6 }}>
-                Connect Apple Health
+                Connect Apple Health (Mock Demo)
               </div>
               <div style={{ fontSize: "0.88rem", color: "var(--text-muted)", maxWidth: 340 }}>
-                Import your steps and sleep data to unlock personalized AI health insights.
+                Simulate importing 7 days of steps and sleep data for demonstration.
               </div>
             </div>
             <button className="ah-sync-btn" style={{ maxWidth: 320 }} onClick={handleSync}>
               <span style={{ fontSize: "1.2rem" }}>❤️</span>
-              Sync with Apple Health
+              Sync Mock Data
             </button>
             <div
               style={{
@@ -279,18 +318,16 @@ export default function AppleHealthPage() {
                 lineHeight: 1.5,
               }}
             >
-              Demo uses mock data synchronized from Apple Health export. No real device connection required.
+              This simulates the Apple Health import flow. Use "Parse export.zip from Project Root" above for real data.
             </div>
           </div>
         </div>
       )}
 
-      {/* ---- In-progress: show status card ---- */}
       {!synced && syncStage !== "idle" && (
         <SyncStatusCard stage={syncStage} />
       )}
 
-      {/* ---- Post-sync: show data + insight + ask AI ---- */}
       {synced && (
         <>
           {/* Re-sync button */}

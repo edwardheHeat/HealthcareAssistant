@@ -127,9 +127,72 @@ def _format_clinical(entries: Sequence[ClinicalHistoryEntry]) -> str:
     return "\n".join(lines)
 
 
+def _format_apple_health_export(ah: dict) -> str:
+    """Format the richer Apple Health export data for AI context."""
+    from datetime import date, timedelta
+
+    totals = ah.get("totals", {})
+    daily_steps = ah.get("daily_steps", {})
+    daily_workouts = ah.get("daily_workouts", {})
+    daily_sleep = ah.get("daily_sleep", {})
+    daily_energy = ah.get("daily_active_energy", {})
+
+    lines = [
+        f"- Data source: Apple Health export (parsed {ah.get('synced_at', 'unknown')[:10]})",
+        f"- Steps (30d): {totals.get('total_steps_30d', 0):,} total | {totals.get('avg_daily_steps', 0):,} avg/day",
+        f"- Steps (7d): {totals.get('total_steps_7d', 0):,} total | {totals.get('avg_daily_steps_7d', 0):,} avg/day",
+    ]
+
+    # Recent 7 days steps
+    today = date.today()
+    step_lines = []
+    for i in range(6, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        step_lines.append(f"{d[5:]}: {daily_steps.get(d, 0):,}")
+    lines.append(f"- Daily steps (last 7d): {', '.join(step_lines)}")
+
+    # Workouts
+    workout_count = totals.get("total_workout_sessions_30d", 0)
+    workout_types = totals.get("workout_type_counts", {})
+    avg_min = totals.get("avg_workout_min_per_session", 0)
+    type_str = ", ".join(f"{k}: {v}" for k, v in list(workout_types.items())[:5])
+    lines.append(f"- Workouts (30d): {workout_count} sessions | {avg_min} min avg/session")
+    if type_str:
+        lines.append(f"- Workout types: {type_str}")
+    lines.append(f"- Exercise (7d): {totals.get('avg_workout_min_7d', 0)} avg min/day")
+
+    # Active energy
+    if daily_energy:
+        recent_energy = sum(
+            v for d, v in daily_energy.items() if d >= (today - timedelta(days=6)).isoformat()
+        )
+        lines.append(f"- Active energy burned (7d): {round(recent_energy):,} kcal total")
+
+    # Sleep
+    if daily_sleep:
+        recent_sleep = [
+            v for d, v in daily_sleep.items() if d >= (today - timedelta(days=6)).isoformat()
+        ]
+        if recent_sleep:
+            avg_sleep = round(sum(recent_sleep) / len(recent_sleep), 2)
+            lines.append(f"- Sleep (7d): {avg_sleep} hrs/night avg ({len(recent_sleep)} nights tracked)")
+        else:
+            lines.append("- Sleep: no recent data in Apple Health export")
+    else:
+        lines.append("- Sleep: no sleep data in Apple Health export")
+
+    return "\n".join(lines)
+
+
 def _format_apple_health(ah: dict | None) -> str:
     if not ah:
         return "No Apple Health data synced yet."
+
+    source = ah.get("source", "mock")
+    if source == "export":
+        return _format_apple_health_export(ah)
+
+    # Legacy mock format (7-element arrays)
     days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     steps_str = ", ".join(
         f"{days[i]}: {s:,}" for i, s in enumerate(ah.get("steps", []))

@@ -138,6 +138,15 @@ export const syncAppleHealth = (data: { steps: number[]; sleep: number[] }) =>
 export const getLatestAppleHealthSync = () =>
   request<Record<string, unknown>>("/apple-health/sync/latest");
 
+export const parseAppleHealthExport = () =>
+  request<{ id: number; parsed_at: string; totals: Record<string, unknown>; date_range: { start: string; end: string } }>("/apple-health/parse-export", {
+    method: "POST",
+    body: "{}",
+  });
+
+export const getLatestAppleHealthExport = () =>
+  request<Record<string, unknown>>("/apple-health/export/latest");
+
 export const generateHealthInsight = (data: { steps: number[]; sleep: number[] }) =>
   request<{ insight: string; summaries: Record<string, unknown> }>("/apple-health/insight", {
     method: "POST",

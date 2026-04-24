@@ -2,22 +2,25 @@
 
 In production, this system integrates with Apple Health via HealthKit through a native iOS
 application. Due to browser privacy restrictions, this demo simulates the import process
-using synchronized mock data.
+using synchronized mock data or real export.xml parsing.
 """
 
+import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db import get_db
+from app.db import SessionLocal, get_db
 from app.dependencies import get_current_user
 from app.llm.client import call_llm
-from app.models.apple_health import AppleHealthSync
+from app.models.apple_health import AppleHealthExport, AppleHealthSync
 from app.models.user import UserProfile
+from app.services.analysis_generation import refresh_dashboard_analysis
+from app.services.apple_health_parser import parse_apple_health_export
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +133,15 @@ def _fallback_answer(question: str, summaries: dict) -> str:
     )
 
 
+def _do_refresh_analysis(user_id: int) -> None:
+    """Refresh dashboard analysis in a fresh DB session (for executor thread)."""
+    db = SessionLocal()
+    try:
+        refresh_dashboard_analysis(db, user_id)
+    finally:
+        db.close()
+
+
 @router.post("/sync")
 def sync_apple_health(
     payload: HealthDataPayload,
@@ -177,6 +189,69 @@ def get_latest_sync(
     }
 
 
+@router.post("/parse-export")
+async def parse_export(
+    current_user: UserProfile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Parse the Apple Health export.zip and store aggregated data."""
+    loop = asyncio.get_event_loop()
+
+    try:
+        parsed = await loop.run_in_executor(None, lambda: parse_apple_health_export(days=30))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    record = AppleHealthExport(
+        user_id=current_user.id,
+        daily_steps_json=json.dumps(parsed["daily_steps"]),
+        daily_workouts_json=json.dumps(parsed["daily_workouts"]),
+        daily_active_energy_json=json.dumps(parsed["daily_active_energy"]),
+        daily_sleep_json=json.dumps(parsed["daily_sleep"]),
+        totals_json=json.dumps(parsed["totals"]),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    # Refresh dashboard analysis in background executor (LLM calls are synchronous)
+    try:
+        await loop.run_in_executor(None, lambda: _do_refresh_analysis(current_user.id))
+    except Exception as exc:
+        logger.warning("Dashboard analysis refresh failed after AH export: %s", exc)
+
+    return {
+        "id": record.id,
+        "parsed_at": record.parsed_at.isoformat(),
+        "totals": parsed["totals"],
+        "date_range": {
+            "start": parsed["date_range_start"],
+            "end": parsed["date_range_end"],
+        },
+    }
+
+
+@router.get("/export/latest")
+def get_latest_export(
+    current_user: UserProfile = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict | None:
+    """Return the most recent Apple Health export for this user, or null."""
+    record = db.scalars(
+        select(AppleHealthExport)
+        .where(AppleHealthExport.user_id == current_user.id)
+        .order_by(AppleHealthExport.parsed_at.desc())
+        .limit(1)
+    ).first()
+    if record is None:
+        return None
+    return {
+        "id": record.id,
+        "parsed_at": record.parsed_at.isoformat(),
+        "totals": record.totals,
+    }
+
+
 @router.post("/insight")
 async def generate_insight(
     payload: HealthDataPayload,
@@ -216,3 +291,4 @@ async def ask_ai(
         answer = _fallback_answer(payload.question, summaries)
 
     return {"answer": answer}
+

@@ -46,6 +46,15 @@ export interface ExerciseStats {
     last_7_days: ChartPoint[];
     last_30_days: ChartPoint[];
   };
+  // Apple Health step data (injected when synced)
+  avg_daily_steps?: number;
+  avg_daily_steps_7d?: number;
+  total_steps_7d?: number;
+  total_steps_30d?: number;
+  steps_bar_chart_7d?: ChartPoint[];
+  steps_bar_chart_30d?: ChartPoint[];
+  // Apple Health workout data (injected from export)
+  active_energy_7d?: number;
 }
 
 export interface SleepStats {
@@ -97,13 +106,22 @@ export interface OverallAnalysisSummary {
 export interface AppleHealthData {
   id: number;
   synced_at: string;
-  steps: number[];
-  sleep: number[];
+  source?: "mock" | "export";
+  // Legacy mock format
+  steps?: number[];
+  sleep?: number[];
+  // Summary stats (common to both)
   total_steps_7d: number;
   avg_daily_steps: number;
-  avg_sleep_hrs: number;
-  midweek_sleep_drop: boolean;
-  high_activity_fluctuation: boolean;
+  avg_sleep_hrs?: number;
+  midweek_sleep_drop?: boolean;
+  high_activity_fluctuation?: boolean;
+  // Export format
+  totals?: Record<string, unknown>;
+  daily_steps?: Record<string, number>;
+  daily_workouts?: Record<string, unknown>;
+  daily_sleep?: Record<string, number>;
+  daily_active_energy?: Record<string, number>;
 }
 
 export interface DashboardResponse {
