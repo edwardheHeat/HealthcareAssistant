@@ -183,27 +183,61 @@ def compute_diet_stats(logs: list[DailyDiet]) -> dict[str, Any]:
     }
 
 
-def compute_exercise_stats(logs: list[DailyExercise]) -> dict[str, Any]:
+def compute_exercise_stats(
+    logs: list[DailyExercise],
+    ah_duration: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    ah_duration = ah_duration or {}
+    
+    # Helper to get merged duration for a date
+    def get_duration(d: date) -> float | None:
+        ds = d.isoformat()
+        # Find manual log
+        manual = next((log for log in logs if log.date == d), None)
+        if manual is not None:
+            return float(manual.duration_minutes)
+        return ah_duration.get(ds)
+
+    # Filter logs for windows
     logs_7d = _filter_logs_by_date(logs, start_date=_window_start(7))
     logs_30d = _filter_logs_by_date(logs, start_date=_window_start(30))
     prev_start, prev_end = _previous_window_bounds(30)
-    previous_logs_30d = _filter_logs_by_date(
-        logs,
-        start_date=prev_start,
-        end_date=prev_end,
-    )
+    
+    # For averages, we need to merge the data day-by-day in the window
+    def get_window_durations(start: date, end: date) -> list[float]:
+        durations: list[float] = []
+        curr = start
+        while curr <= end:
+            val = get_duration(curr)
+            if val is not None:
+                durations.append(val)
+            curr += timedelta(days=1)
+        return durations
 
-    avg_duration_7d = _mean([float(log.duration_minutes) for log in logs_7d])
-    avg_duration_30d = _mean([float(log.duration_minutes) for log in logs_30d])
-    previous_avg_duration_30d = _mean(
-        [float(log.duration_minutes) for log in previous_logs_30d]
-    )
+    durations_7d = get_window_durations(_window_start(7), _TODAY())
+    durations_30d = get_window_durations(_window_start(30), _TODAY())
+    durations_prev_30d = get_window_durations(prev_start, prev_end)
+
+    avg_duration_7d = _mean(durations_7d)
+    avg_duration_30d = _mean(durations_30d)
+    previous_avg_duration_30d = _mean(durations_prev_30d)
 
     intensity_distribution = {
         "low": sum(1 for log in logs_30d if log.intensity == "low"),
         "medium": sum(1 for log in logs_30d if log.intensity == "medium"),
         "high": sum(1 for log in logs_30d if log.intensity == "high"),
     }
+
+    # Build bar chart data using the merged get_duration helper
+    def build_merged_chart(days: int) -> list[dict[str, Any]]:
+        end_date = _TODAY()
+        start_date = end_date - timedelta(days=days - 1)
+        chart = []
+        curr = start_date
+        while curr <= end_date:
+            chart.append({"date": curr.isoformat(), "value": get_duration(curr)})
+            curr += timedelta(days=1)
+        return chart
 
     return {
         "avg_duration_7d": avg_duration_7d,
@@ -216,35 +250,57 @@ def compute_exercise_stats(logs: list[DailyExercise]) -> dict[str, Any]:
         ),
         "intensity_distribution": intensity_distribution,
         "bar_chart_data": {
-            "last_7_days": _build_bar_chart(
-                logs,
-                days=7,
-                value_getter=lambda log: log.duration_minutes,
-            ),
-            "last_30_days": _build_bar_chart(
-                logs,
-                days=30,
-                value_getter=lambda log: log.duration_minutes,
-            ),
+            "last_7_days": build_merged_chart(7),
+            "last_30_days": build_merged_chart(30),
         },
     }
 
 
-def compute_sleep_stats(logs: list[DailySleep]) -> dict[str, Any]:
+def compute_sleep_stats(
+    logs: list[DailySleep],
+    ah_sleep: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    ah_sleep = ah_sleep or {}
+
+    # Helper to get merged sleep duration for a date
+    def get_sleep_duration(d: date) -> float | None:
+        ds = d.isoformat()
+        manual = next((log for log in logs if log.date == d), None)
+        if manual is not None:
+            return _sleep_duration_hours(manual)
+        return ah_sleep.get(ds)
+
     logs_7d = _filter_logs_by_date(logs, start_date=_window_start(7))
     logs_30d = _filter_logs_by_date(logs, start_date=_window_start(30))
     prev_start, prev_end = _previous_window_bounds(30)
-    previous_logs_30d = _filter_logs_by_date(
-        logs,
-        start_date=prev_start,
-        end_date=prev_end,
-    )
+    
+    def get_window_durations(start: date, end: date) -> list[float]:
+        durations: list[float] = []
+        curr = start
+        while curr <= end:
+            val = get_sleep_duration(curr)
+            if val is not None:
+                durations.append(val)
+            curr += timedelta(days=1)
+        return durations
 
-    avg_sleep_duration_7d = _mean([_sleep_duration_hours(log) for log in logs_7d])
-    avg_sleep_duration_30d = _mean([_sleep_duration_hours(log) for log in logs_30d])
-    previous_avg_sleep_duration_30d = _mean(
-        [_sleep_duration_hours(log) for log in previous_logs_30d]
-    )
+    durations_7d = get_window_durations(_window_start(7), _TODAY())
+    durations_30d = get_window_durations(_window_start(30), _TODAY())
+    durations_prev_30d = get_window_durations(prev_start, prev_end)
+
+    avg_sleep_duration_7d = _mean(durations_7d)
+    avg_sleep_duration_30d = _mean(durations_30d)
+    previous_avg_sleep_duration_30d = _mean(durations_prev_30d)
+
+    def build_merged_chart(days: int) -> list[dict[str, Any]]:
+        end_date = _TODAY()
+        start_date = end_date - timedelta(days=days - 1)
+        chart = []
+        curr = start_date
+        while curr <= end_date:
+            chart.append({"date": curr.isoformat(), "value": get_sleep_duration(curr)})
+            curr += timedelta(days=1)
+        return chart
 
     return {
         "avg_sleep_duration_7d": avg_sleep_duration_7d,
@@ -261,16 +317,8 @@ def compute_sleep_stats(logs: list[DailySleep]) -> dict[str, Any]:
         "avg_quality_7d": _mean([float(log.quality) for log in logs_7d]),
         "avg_quality_30d": _mean([float(log.quality) for log in logs_30d]),
         "bar_chart_data": {
-            "last_7_days": _build_bar_chart(
-                logs,
-                days=7,
-                value_getter=_sleep_duration_hours,
-            ),
-            "last_30_days": _build_bar_chart(
-                logs,
-                days=30,
-                value_getter=_sleep_duration_hours,
-            ),
+            "last_7_days": build_merged_chart(7),
+            "last_30_days": build_merged_chart(30),
         },
     }
 
@@ -459,8 +507,11 @@ def compute_dashboard_stat_blocks(user_id: int, db: Session) -> dict[str, Any]:
         .order_by(DailySleep.date.asc())
     ).all()
 
-    sleep_stats = compute_sleep_stats(sleep_logs)
-    exercise_stats = compute_exercise_stats(exercise_logs)
+    # Collect Apple Health Data for Merging
+    ah_sleep: dict[str, float] = {}
+    ah_workout_duration: dict[str, float] = {}
+    ah_steps_7d: list[int] = []
+    ah_steps_stats: dict[str, Any] = {}
 
     # Check for AppleHealthExport first (new, richer format with 30-day data)
     ah_export = db.scalars(
@@ -471,67 +522,37 @@ def compute_dashboard_stat_blocks(user_id: int, db: Session) -> dict[str, Any]:
     ).first()
 
     if ah_export is not None:
-        # Always merge steps and energy data
-        steps_data = _steps_and_energy_from_export(ah_export)
-        exercise_stats.update(steps_data)
-
-        # Merge exercise duration from workouts when no manual data exists
-        if exercise_stats["avg_duration_7d"] is None:
-            workout_stats = _exercise_stats_from_export(ah_export)
-            exercise_stats["avg_duration_7d"] = workout_stats["avg_duration_7d"]
-            exercise_stats["avg_duration_30d"] = workout_stats["avg_duration_30d"]
-            exercise_stats["intensity_distribution"] = workout_stats[
-                "intensity_distribution"
-            ]
-            exercise_stats["bar_chart_data"] = workout_stats["bar_chart_data"]
-
-        # Merge sleep from export when no manual data exists
-        if sleep_stats["avg_sleep_duration_7d"] is None:
-            ah_sleep = ah_export.daily_sleep
-            if ah_sleep:
-                today = _TODAY()
-                start_7d = (today - timedelta(days=6)).isoformat()
-                sleep_7d = [v for k, v in ah_sleep.items() if k >= start_7d]
-                if sleep_7d:
-                    sleep_stats["avg_sleep_duration_7d"] = round(
-                        sum(sleep_7d) / len(sleep_7d), 2
-                    )
-                    sleep_stats["bar_chart_data"]["last_7_days"] = [
-                        {
-                            "date": (today - timedelta(days=6 - i)).isoformat(),
-                            "value": ah_sleep.get(
-                                (today - timedelta(days=6 - i)).isoformat()
-                            ),
-                        }
-                        for i in range(7)
-                    ]
+        ah_sleep = ah_export.daily_sleep
+        ah_workout_duration = {
+            day: sum(float(w.get("duration_min", 0)) for w in workouts)
+            for day, workouts in ah_export.daily_workouts.items()
+        }
+        ah_steps_stats = _steps_and_energy_from_export(ah_export)
     else:
         # Fallback: old-style AppleHealthSync (mock 7-element arrays)
-        ah = db.scalars(
+        ah_sync = db.scalars(
             select(AppleHealthSync)
             .where(AppleHealthSync.user_id == user_id)
             .order_by(AppleHealthSync.synced_at.desc())
             .limit(1)
         ).first()
 
-        if ah is not None:
-            ah_sleep = ah.sleep
-            ah_steps = ah.steps
+        if ah_sync is not None:
+            ah_sleep = _sync_to_dict(ah_sync.sleep)
+            # Legacy sync didn't have workouts, but we can treat it as empty
+            ah_steps_7d = ah_sync.steps
 
-            # Fill sleep stats with AH data when no manual logs exist
-            if sleep_stats["avg_sleep_duration_7d"] is None and ah_sleep:
-                sleep_stats["avg_sleep_duration_7d"] = round(
-                    sum(ah_sleep) / len(ah_sleep), 2
-                )
-                sleep_stats["bar_chart_data"]["last_7_days"] = _ah_to_chart_points(
-                    ah_sleep
-                )
+    # Compute stats with merged data
+    sleep_stats = compute_sleep_stats(sleep_logs, ah_sleep=ah_sleep)
+    exercise_stats = compute_exercise_stats(exercise_logs, ah_duration=ah_workout_duration)
 
-            # Inject steps into exercise stats
-            if ah_steps:
-                exercise_stats["avg_daily_steps"] = round(sum(ah_steps) / len(ah_steps))
-                exercise_stats["total_steps_7d"] = sum(ah_steps)
-                exercise_stats["steps_bar_chart_7d"] = _ah_to_chart_points(ah_steps)
+    # Inject step data if available
+    if ah_steps_stats:
+        exercise_stats.update(ah_steps_stats)
+    elif ah_steps_7d:
+        exercise_stats["avg_daily_steps"] = round(sum(ah_steps_7d) / len(ah_steps_7d))
+        exercise_stats["total_steps_7d"] = sum(ah_steps_7d)
+        exercise_stats["steps_bar_chart_7d"] = _ah_to_chart_points(ah_steps_7d)
 
     return {
         "basic": compute_basic_stats(basic_logs),
@@ -539,6 +560,15 @@ def compute_dashboard_stat_blocks(user_id: int, db: Session) -> dict[str, Any]:
         "exercise": exercise_stats,
         "sleep": sleep_stats,
         "period_cycle": compute_period_cycle(user_id, db),
+    }
+
+
+def _sync_to_dict(values: list[float | int]) -> dict[str, Any]:
+    """Convert a 7-element Apple Health array to a date-indexed dict."""
+    today = _TODAY()
+    return {
+        (today - timedelta(days=6 - i)).isoformat(): v
+        for i, v in enumerate(values)
     }
 
 
@@ -593,9 +623,12 @@ def get_apple_health_summary(user_id: int, db: Session) -> dict[str, Any] | None
         .limit(1)
     ).first()
 
+    summary: dict[str, Any] = {}
+    today = _TODAY()
+
     if export is not None:
         totals = export.totals
-        return {
+        summary = {
             "source": "export",
             "synced_at": export.parsed_at.isoformat(),
             "totals": totals,
@@ -604,6 +637,24 @@ def get_apple_health_summary(user_id: int, db: Session) -> dict[str, Any] | None
             "daily_sleep": export.daily_sleep,
             "daily_active_energy": export.daily_active_energy,
         }
+        # Add unified last_7_days for frontend charts
+        last_7_days = []
+        steps_7d = []
+        sleep_7d = []
+        labels_7d = []
+        for i in range(6, -1, -1):
+            d = today - timedelta(days=i)
+            ds = d.isoformat()
+            labels_7d.append(d.strftime("%a"))
+            steps_7d.append(export.daily_steps.get(ds, 0))
+            sleep_7d.append(export.daily_sleep.get(ds, 0.0))
+        
+        summary["last_7_days"] = {
+            "steps": steps_7d,
+            "sleep": sleep_7d,
+            "labels": labels_7d,
+        }
+        return summary
 
     # Fallback to old sync format
     record = db.scalars(
@@ -614,12 +665,17 @@ def get_apple_health_summary(user_id: int, db: Session) -> dict[str, Any] | None
     ).first()
     if record is None:
         return None
+    
     steps = record.steps
     sleep = record.sleep
     avg_sleep = round(sum(sleep) / len(sleep), 2) if sleep else 0.0
     midweek_avg = (
         round(sum(sleep[i] for i in [2, 3, 4]) / 3, 2) if len(sleep) >= 5 else avg_sleep
     )
+    
+    # Mock labels for legacy sync (last 7 days)
+    labels_7d = [(today - timedelta(days=6 - i)).strftime("%a") for i in range(7)]
+
     return {
         "source": "mock",
         "synced_at": record.synced_at.isoformat(),
@@ -632,6 +688,11 @@ def get_apple_health_summary(user_id: int, db: Session) -> dict[str, Any] | None
         "high_activity_fluctuation": (max(steps) - min(steps)) > 4000
         if steps
         else False,
+        "last_7_days": {
+            "steps": steps,
+            "sleep": sleep,
+            "labels": labels_7d,
+        }
     }
 
 

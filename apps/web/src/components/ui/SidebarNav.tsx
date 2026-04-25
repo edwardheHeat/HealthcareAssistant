@@ -32,9 +32,9 @@ export default function SidebarNav() {
     <>
       <nav className="sidebar">
         <div className="sidebar-logo">
-          <div className="sidebar-logo-icon">HA</div>
+          <div className="sidebar-logo-icon">VS</div>
           <div className="sidebar-logo-text">
-            Health<span>AI</span>
+            Vital<span>Sync</span>
           </div>
         </div>
 

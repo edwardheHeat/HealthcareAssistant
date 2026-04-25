@@ -8,11 +8,12 @@
  * 2. Real export: Parses the actual Apple Health export.xml for 30 days of real data
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   askHealthAI,
   generateHealthInsight,
+  getLatestAppleHealthExport,
   parseAppleHealthExport,
   syncAppleHealth,
 } from "@/lib/apiClient";
@@ -164,6 +165,13 @@ function SummaryChip({
 export default function AppleHealthPage() {
   const [syncStage, setSyncStage] = useState<SyncStage>("idle");
   const [synced, setSynced] = useState(false);
+  
+  // Data State
+  const [steps, setSteps] = useState<number[]>([]);
+  const [sleep, setSleep] = useState<number[]>([]);
+  const [labels, setLabels] = useState<string[]>([]);
+  const [syncedAt, setSyncedAt] = useState<string | null>(null);
+
   const [insight, setInsight] = useState<string | null>(null);
   const [insightLoading, setInsightLoading] = useState(false);
   const [question, setQuestion] = useState("");
@@ -176,6 +184,33 @@ export default function AppleHealthPage() {
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportData, setExportData] = useState<ExportParseResult | null>(null);
 
+  // Initialize data on mount
+  useEffect(() => {
+    const loadLatest = async () => {
+      try {
+        const data = await getLatestAppleHealthExport();
+        if (data && data.last_7_days) {
+          updateDataState(data);
+          setSynced(true);
+          // Optionally fetch insight if we have data but no insight
+          void fetchInsight(data.last_7_days.steps, data.last_7_days.sleep);
+        }
+      } catch (e) {
+        console.error("Failed to load latest Apple Health data", e);
+      }
+    };
+    void loadLatest();
+  }, []);
+
+  const updateDataState = (summary: any) => {
+    if (summary.last_7_days) {
+      setSteps(summary.last_7_days.steps);
+      setSleep(summary.last_7_days.sleep);
+      setLabels(summary.last_7_days.labels);
+    }
+    setSyncedAt(summary.synced_at || summary.parsed_at);
+  };
+
   async function handleSync() {
     setSyncStage("connecting");
     await delay(1200);
@@ -185,15 +220,30 @@ export default function AppleHealthPage() {
     await delay(1600);
 
     try {
+      // Sync mock data but get back the unified summary
       await syncAppleHealth({ steps: MOCK_STEPS, sleep: MOCK_SLEEP });
+      
+      // Fetch the latest summary immediately after sync to update charts
+      const data = await getLatestAppleHealthExport();
+      if (data) {
+        updateDataState(data);
+      } else {
+        // Fallback if summary fetch fails
+        setSteps(MOCK_STEPS);
+        setSleep(MOCK_SLEEP);
+        setLabels(DAY_LABELS);
+      }
     } catch {
-      // The demo can still show mock data if persistence fails.
+      // Fallback for demo
+      setSteps(MOCK_STEPS);
+      setSleep(MOCK_SLEEP);
+      setLabels(DAY_LABELS);
     }
 
     setSyncStage("done");
     await delay(800);
     setSynced(true);
-    void fetchInsight();
+    void fetchInsight(MOCK_STEPS, MOCK_SLEEP);
   }
 
   async function handleParseExport() {
@@ -203,6 +253,11 @@ export default function AppleHealthPage() {
     try {
       const result = await parseAppleHealthExport();
       setExportData(result);
+      if (result.summary) {
+        updateDataState(result.summary);
+        setSynced(true);
+        void fetchInsight(result.summary.last_7_days.steps, result.summary.last_7_days.sleep);
+      }
       setExportStage("done");
     } catch (error: unknown) {
       setExportError(error instanceof Error ? error.message : "Failed to parse export");
@@ -210,13 +265,16 @@ export default function AppleHealthPage() {
     }
   }
 
-  async function fetchInsight() {
-    setInsightLoading(true);
+  async function fetchInsight(stepsData?: number[], sleepData?: number[]) {
+    const s = stepsData || steps;
+    const sl = sleepData || sleep;
+    if (s.length === 0) return;
 
+    setInsightLoading(true);
     try {
       const response = await generateHealthInsight({
-        steps: MOCK_STEPS,
-        sleep: MOCK_SLEEP,
+        steps: s,
+        sleep: sl,
       });
       setInsight(response.insight);
     } catch {
@@ -227,7 +285,7 @@ export default function AppleHealthPage() {
   }
 
   async function handleAsk() {
-    if (!question.trim()) {
+    if (!question.trim() || steps.length === 0) {
       return;
     }
 
@@ -238,8 +296,8 @@ export default function AppleHealthPage() {
     try {
       const response = await askHealthAI({
         question: question.trim(),
-        steps: MOCK_STEPS,
-        sleep: MOCK_SLEEP,
+        steps: steps,
+        sleep: sleep,
       });
       setAnswer(response.answer);
     } catch (error: unknown) {
@@ -249,11 +307,12 @@ export default function AppleHealthPage() {
     }
   }
 
-  const totalSteps = MOCK_STEPS.reduce((sum, value) => sum + value, 0);
-  const avgSleep = (
-    MOCK_SLEEP.reduce((sum, value) => sum + value, 0) / MOCK_SLEEP.length
-  ).toFixed(1);
-  const avgSteps = Math.round(totalSteps / MOCK_STEPS.length);
+  const hasData = steps.length > 0;
+  const totalSteps = steps.reduce((sum, value) => sum + value, 0);
+  const avgSleep = steps.length > 0 ? (
+    sleep.reduce((sum, value) => sum + value, 0) / sleep.length
+  ).toFixed(1) : "0.0";
+  const avgSteps = steps.length > 0 ? Math.round(totalSteps / steps.length) : 0;
 
   return (
     <div>
@@ -337,8 +396,8 @@ export default function AppleHealthPage() {
                 Date range: {exportData.date_range.start} to{" "}
                 {exportData.date_range.end}
               </div>
-              <div>
-                Totals: {JSON.stringify(exportData.totals).substring(0, 120)}...
+              <div style={{ marginTop: 4 }}>
+                Charts below have been updated with your real data.
               </div>
             </div>
           </div>
@@ -416,45 +475,35 @@ export default function AppleHealthPage() {
               <span style={{ fontSize: "1.2rem" }}>AH</span>
               Sync Mock Data
             </button>
-            <div
-              style={{
-                fontSize: "0.75rem",
-                color: "var(--text-muted)",
-                textAlign: "center",
-                maxWidth: 320,
-                lineHeight: 1.5,
-              }}
-            >
-              This simulates the Apple Health import flow. Use the real export
-              parser above for real data.
-            </div>
           </div>
         </div>
       )}
 
       {!synced && syncStage !== "idle" && <SyncStatusCard stage={syncStage} />}
 
-      {synced && (
+      {hasData && (
         <>
           <div
             style={{
               display: "flex",
-              justifyContent: "flex-end",
+              justifyContent: "space-between",
+              alignItems: "center",
               marginBottom: 20,
             }}
           >
+            <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+              Last synced: {syncedAt ? new Date(syncedAt).toLocaleString() : "Just now"}
+            </div>
             <button
               className="ah-sync-btn ah-sync-btn-done"
               style={{ width: "auto", padding: "10px 20px", fontSize: "0.88rem" }}
               onClick={() => {
                 setSynced(false);
                 setSyncStage("idle");
-                setInsight(null);
-                setAnswer(null);
               }}
             >
               <span>OK</span>
-              Synced - Re-import
+              Refresh Data
             </button>
           </div>
 
@@ -488,8 +537,8 @@ export default function AppleHealthPage() {
               Daily Steps - Last 7 Days
             </div>
             <MiniBarChart
-              values={MOCK_STEPS}
-              labels={DAY_LABELS}
+              values={steps}
+              labels={labels}
               color="var(--teal)"
               unit="k"
             />
@@ -500,8 +549,8 @@ export default function AppleHealthPage() {
               Sleep Duration - Last 7 Days
             </div>
             <MiniBarChart
-              values={MOCK_SLEEP}
-              labels={DAY_LABELS}
+              values={sleep}
+              labels={labels}
               color="var(--accent)"
               unit=" h"
             />
@@ -576,7 +625,7 @@ export default function AppleHealthPage() {
                 marginBottom: answer || askError ? 12 : 0,
               }}
             >
-              Your step and sleep data will be sent with your question.
+              Your actual step and sleep data will be sent with your question.
             </div>
 
             {askError && (

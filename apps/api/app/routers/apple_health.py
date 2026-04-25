@@ -142,24 +142,85 @@ def _do_refresh_analysis(user_id: int) -> None:
         db.close()
 
 
+import asyncio
+import json
+import logging
+from datetime import date, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.db import SessionLocal, get_db
+from app.dependencies import get_current_user
+from app.llm.client import call_llm
+from app.models.apple_health import AppleHealthExport, AppleHealthSync
+from app.models.user import UserProfile
+from app.services.analysis_generation import refresh_dashboard_analysis
+from app.services.apple_health_parser import parse_apple_health_export
+from app.services.apple_health_sync_service import sync_ah_to_core
+
+# ... (summaries and insight logic)
+
 @router.post("/sync")
-def sync_apple_health(
+async def sync_apple_health(
     payload: HealthDataPayload,
     current_user: UserProfile = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
     """Persist the simulated Apple Health import for this user."""
-    record = AppleHealthSync(
+    # Unified storage: use AppleHealthExport table for mock data too
+    today = date.today()
+    daily_steps = {
+        (today - timedelta(days=len(payload.steps) - 1 - i)).isoformat(): s
+        for i, s in enumerate(payload.steps)
+    }
+    daily_sleep = {
+        (today - timedelta(days=len(payload.sleep) - 1 - i)).isoformat(): h
+        for i, h in enumerate(payload.sleep)
+    }
+    
+    totals = {
+        "total_steps_7d": sum(payload.steps),
+        "avg_daily_steps_7d": round(sum(payload.steps) / len(payload.steps)) if payload.steps else 0,
+        "avg_sleep_hrs_7d": round(sum(payload.sleep) / len(payload.sleep), 2) if payload.sleep else 0.0,
+    }
+
+    record = AppleHealthExport(
+        user_id=current_user.id,
+        daily_steps_json=json.dumps(daily_steps),
+        daily_workouts_json=json.dumps({}),
+        daily_active_energy_json=json.dumps({}),
+        daily_sleep_json=json.dumps(daily_sleep),
+        totals_json=json.dumps(totals),
+    )
+    db.add(record)
+    
+    # Also keep legacy Sync record for now to ensure compatibility
+    sync_record = AppleHealthSync(
         user_id=current_user.id,
         steps_json=json.dumps(payload.steps),
         sleep_json=json.dumps(payload.sleep),
     )
-    db.add(record)
+    db.add(sync_record)
+    
     db.commit()
     db.refresh(record)
+
+    # Sync to core records (DailySleep, DailyExercise)
+    await sync_ah_to_core(db, current_user.id)
+
+    # Refresh dashboard analysis in background
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(None, lambda: _do_refresh_analysis(current_user.id))
+    except Exception as exc:
+        logger.warning("Dashboard analysis refresh failed after AH sync: %s", exc)
+
     return {
         "id": record.id,
-        "synced_at": record.synced_at.isoformat(),
+        "synced_at": record.parsed_at.isoformat(),
         "steps": payload.steps,
         "sleep": payload.sleep,
     }
@@ -171,22 +232,12 @@ def get_latest_sync(
     db: Session = Depends(get_db),
 ) -> dict | None:
     """Return the most recent Apple Health sync for this user, or null."""
-    record = db.scalars(
-        select(AppleHealthSync)
-        .where(AppleHealthSync.user_id == current_user.id)
-        .order_by(AppleHealthSync.synced_at.desc())
-        .limit(1)
-    ).first()
-    if record is None:
+    # Use the unified summary service
+    from app.services.analysis_service import get_apple_health_summary
+    summary = get_apple_health_summary(current_user.id, db)
+    if not summary:
         return {}
-    summaries = _compute_summaries(record.steps, record.sleep)
-    return {
-        "id": record.id,
-        "synced_at": record.synced_at.isoformat(),
-        "steps": record.steps,
-        "sleep": record.sleep,
-        "summaries": summaries,
-    }
+    return summary
 
 
 @router.post("/parse-export")
@@ -214,11 +265,18 @@ async def parse_export(
     db.commit()
     db.refresh(record)
 
+    # Sync to core records (DailySleep, DailyExercise)
+    await sync_ah_to_core(db, current_user.id)
+
     # Refresh dashboard analysis in background executor (LLM calls are synchronous)
     try:
         await loop.run_in_executor(None, lambda: _do_refresh_analysis(current_user.id))
     except Exception as exc:
         logger.warning("Dashboard analysis refresh failed after AH export: %s", exc)
+
+    # Get the updated unified summary to return to frontend
+    from app.services.analysis_service import get_apple_health_summary
+    summary = get_apple_health_summary(current_user.id, db)
 
     return {
         "id": record.id,
@@ -228,6 +286,7 @@ async def parse_export(
             "start": parsed["date_range_start"],
             "end": parsed["date_range_end"],
         },
+        "summary": summary
     }
 
 
@@ -237,19 +296,9 @@ def get_latest_export(
     db: Session = Depends(get_db),
 ) -> dict | None:
     """Return the most recent Apple Health export for this user, or null."""
-    record = db.scalars(
-        select(AppleHealthExport)
-        .where(AppleHealthExport.user_id == current_user.id)
-        .order_by(AppleHealthExport.parsed_at.desc())
-        .limit(1)
-    ).first()
-    if record is None:
-        return None
-    return {
-        "id": record.id,
-        "parsed_at": record.parsed_at.isoformat(),
-        "totals": record.totals,
-    }
+    from app.services.analysis_service import get_apple_health_summary
+    summary = get_apple_health_summary(current_user.id, db)
+    return summary
 
 
 @router.post("/insight")
